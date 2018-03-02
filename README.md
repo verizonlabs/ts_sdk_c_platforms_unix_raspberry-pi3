@@ -3,7 +3,7 @@
 ## Raspberry Pi 3 Build Guide
 This document serves as a quick start guide to build SDK examples for the Raspberry Pi 3 with Ethernet/WiFi connectivity. Steps mentioned here are not needed if compiling the SDK as a static library.
 
-### Prequisites
+### Prerequisites
 
 1. Request access to following repositories:
     * https://github.com/verizonlabs/ts_sdk_c
@@ -55,7 +55,7 @@ Verify cmake, should be 3.7.1 or above:
 $cmake --version
 ```
 
-### Download the SDK code and the Dependencies
+### Download the SDK Code and the Dependencies
 
 4. Follow through the readme of https://github.com/verizonlabs/ts_sdk_c checkout repository:
 
@@ -106,7 +106,7 @@ $ ./scripts/include_certs.sh thingspaceserver.pem B827EBB22552.cert.pem B827EBB2
   <img src="https://raw.githubusercontent.com/verizonlabs/ts_sdk_c_platforms_unix_raspberry-pi3/develop/macid-code.png?token=AfkE-DpBpWYJy-nDxY-rbHGqDeJhLXREks5aou0lwA%3D%3D">
 </p>
 
-### Build and Run Application
+### Build and Run Sample Application
 
 10. Build ts_sdk and sample applications
 
