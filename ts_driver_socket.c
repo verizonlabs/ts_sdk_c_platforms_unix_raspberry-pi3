@@ -1,4 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
+#if defined(TS_DRIVER_SOCKET)
 #if defined(__unix__) || defined(__unix) || ( defined(__APPLE__) && defined(__MACH__))
 
 #include <sys/socket.h>
@@ -36,6 +37,7 @@ TsDriverVtable_t ts_driver_unix_socket = {
 	.reader = ts_reader,
 	.write = ts_write,
 };
+const TsDriverVtable_t * ts_driver = &ts_driver_unix_socket;
 
 typedef struct TsDriverSocket * TsDriverSocketRef_t;
 typedef struct TsDriverSocket {
@@ -361,3 +363,4 @@ static TsStatus_t ts_write( TsDriverRef_t driver, const uint8_t * buffer, size_t
 	return status;
 }
 #endif // __unix__
+#endif // TS_DRIVER_SOCKET

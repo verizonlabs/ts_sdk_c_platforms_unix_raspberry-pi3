@@ -36,6 +36,7 @@ TsPlatformVtable_t ts_platform_unix = {
     .free = ts_free,
     .assertion = ts_assertion,
 };
+const TsPlatformVtable_t * ts_platform = &ts_platform_unix;
 
 static void ts_initialize() {
     // do nothing

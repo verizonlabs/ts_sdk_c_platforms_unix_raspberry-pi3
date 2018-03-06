@@ -1,4 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
+#if defined(TS_DRIVER_SERIAL) || defined(TS_DRIVER_UART)
 #if defined(__unix__) || defined(__unix) || ( defined(__APPLE__) && defined(__MACH__))
 #if defined(__APPLE__) && defined(__MACH__)
 #include <sys/ioctl.h>
@@ -36,6 +37,7 @@ TsDriverVtable_t ts_driver_unix_serial = {
 	.reader = ts_reader,
 	.write = ts_write,
 };
+const TsDriverVtable_t * ts_driver = &ts_driver_unix_serial;
 
 typedef struct TsDriverSerial * TsDriverSerialRef_t;
 typedef struct TsDriverSerial {
@@ -348,3 +350,4 @@ static TsStatus_t ts_write( TsDriverRef_t driver, const uint8_t * buffer, size_t
 }
 
 #endif // __unix__
+#endif // TS_DRIVER_SERIAL
