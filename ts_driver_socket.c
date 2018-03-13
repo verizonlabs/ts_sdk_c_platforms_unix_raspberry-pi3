@@ -2,19 +2,33 @@
 #if defined(TS_DRIVER_SOCKET)
 #if defined(__unix__) || defined(__unix) || ( defined(__APPLE__) && defined(__MACH__))
 
-#include <sys/socket.h>
 #include <arpa/inet.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <netdb.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <net/if.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <signal.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#if defined(__APPLE__) && defined(__MACH__)
+
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <net/if_dl.h>
+#include <stdlib.h>
+
+#endif
 
 #include "ts_platform.h"
 #include "ts_driver.h"
+
+static uint8_t _hex_digits[] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
 
 static TsStatus_t ts_create( TsDriverRef_t * );
 static TsStatus_t ts_destroy( TsDriverRef_t );
@@ -23,7 +37,7 @@ static TsStatus_t ts_tick( TsDriverRef_t, uint32_t );
 static TsStatus_t ts_connect( TsDriverRef_t, TsAddress_t );
 static TsStatus_t ts_disconnect( TsDriverRef_t );
 static TsStatus_t ts_read( TsDriverRef_t, const uint8_t *, size_t *, uint32_t );
-static TsStatus_t ts_reader(TsDriverRef_t, void*, TsDriverReader_t);
+static TsStatus_t ts_reader( TsDriverRef_t, void *, TsDriverReader_t );
 static TsStatus_t ts_write( TsDriverRef_t, const uint8_t *, size_t *, uint32_t );
 
 TsDriverVtable_t ts_driver_unix_socket = {
@@ -57,6 +71,7 @@ static TsStatus_t ts_create( TsDriverRef_t * driver ) {
 	ts_status_trace( "ts_driver_create: socket\n" );
 	ts_platform_assert( driver != NULL );
 
+	// TODO - init sockets?
 	//sigignore(SIGHUP);
 	//sigignore(SIGINT);
 	//sigignore(SIGPIPE);
@@ -65,11 +80,11 @@ static TsStatus_t ts_create( TsDriverRef_t * driver ) {
 	TsDriverSocketRef_t sock = (TsDriverSocketRef_t) ( ts_platform_malloc( sizeof( TsDriverSocket_t )));
 	sock->_driver._address = "";
 	sock->_driver._profile = NULL;
-	sock->_driver._spec_budget = 60 * TS_TIME_SEC_TO_USEC;
-	sock->_driver._spec_mcu = 2048;
+	sock->_driver._spec_budget = 60*TS_TIME_SEC_TO_USEC;
+	sock->_driver._spec_mtu = 2048;
 	// TODO - should provide mac address here? probably not
 	// TODO - currently using my own mac-id - need to change this asap.
-	snprintf( (char *)(sock->_driver._spec_id), TS_DRIVER_MAX_ID_SIZE, "%s", "B827EBA15910" );
+	snprintf((char *) ( sock->_driver._spec_id ), TS_DRIVER_MAX_ID_SIZE, "%s", "B827EBA15910" );
 	sock->_fd = -1;
 
 	*driver = (TsDriverRef_t) sock;
@@ -103,9 +118,36 @@ static TsStatus_t ts_connect( TsDriverRef_t driver, TsAddress_t address ) {
 	ts_status_trace( "ts_driver_connect\n" );
 	ts_platform_assert( driver != NULL );
 
-	// TODO - init sockets?
-	// signal( SIGPIPE, SIG_IGN );
+	TsStatus_t status = TsStatusErrorNotFound;
+	TsDriverSocketRef_t sock = (TsDriverSocketRef_t) ( driver );
 
+	// TODO - should really pattern match to see if this is an IP or an FQDN
+#if defined(TS_UNIX_SIMPLE_SOCKET)
+	struct sockaddr_in server;
+	sock->_fd = socket(AF_INET, SOCK_STREAM , 0);
+	if( sock->_fd == -1 ) {
+		return TsStatusErrorInternalServerError;
+	}
+
+	char host[256], port[8];
+	ts_address_parse( address, host, port );
+
+	server.sin_addr.s_addr = inet_addr( host );
+	server.sin_family = AF_INET;
+	server.sin_port = htons( atoi( port ) );
+
+	if (connect( sock->_fd , (struct sockaddr *)&server , sizeof(server)) == 0) {
+
+		if( fcntl( sock->_fd, F_SETFL, fcntl( sock->_fd, F_GETFL, 0 ) | O_NONBLOCK ) == -1 ) {
+
+			status = TsStatusErrorInternalServerError;
+
+		} else {
+
+			status = TsStatusOk;
+		}
+	}
+#else
 	// init address hints
 	struct addrinfo hints;
 	memset( &hints, 0x00, sizeof( struct addrinfo ));
@@ -126,8 +168,6 @@ static TsStatus_t ts_connect( TsDriverRef_t driver, TsAddress_t address ) {
 	}
 
 	// find active listener
-	TsDriverSocketRef_t sock = (TsDriverSocketRef_t) ( driver );
-	TsStatus_t status = TsStatusErrorNotFound;
 	struct addrinfo * current;
 	for( current = address_list; current != NULL; current = current->ai_next ) {
 
@@ -150,6 +190,9 @@ static TsStatus_t ts_connect( TsDriverRef_t driver, TsAddress_t address ) {
 		ts_disconnect( driver );
 	}
 	freeaddrinfo( address_list );
+#endif
+
+	// return status
 	return status;
 }
 
@@ -244,7 +287,7 @@ static TsStatus_t ts_read( TsDriverRef_t driver, const uint8_t * buffer, size_t 
 			} else if( errno == EPIPE || errno == ECONNRESET ) {
 				status = TsStatusErrorConnectionReset;
 			} else if( errno != 0 ) {
-				ts_status_debug( "ts_driver_read: ignoring error, %d\n", errno);
+				ts_status_debug( "ts_driver_read: ignoring error, %d\n", errno );
 				status = TsStatusErrorInternalServerError;
 			}
 
@@ -283,7 +326,7 @@ static TsStatus_t ts_read( TsDriverRef_t driver, const uint8_t * buffer, size_t 
 	return status;
 }
 
-static TsStatus_t ts_reader(TsDriverRef_t driver, void* data, TsDriverReader_t reader ) {
+static TsStatus_t ts_reader( TsDriverRef_t driver, void * data, TsDriverReader_t reader ) {
 	return TsStatusErrorNotImplemented;
 }
 
@@ -326,7 +369,7 @@ static TsStatus_t ts_write( TsDriverRef_t driver, const uint8_t * buffer, size_t
 			} else if( errno == EPIPE || errno == ECONNRESET ) {
 				status = TsStatusErrorConnectionReset;
 			} else if( errno != 0 ) {
-				ts_status_debug( "ts_driver_write: ignoring error, %d\n", errno);
+				ts_status_debug( "ts_driver_write: ignoring error, %d\n", errno );
 				status = TsStatusErrorInternalServerError;
 			}
 
@@ -362,5 +405,124 @@ static TsStatus_t ts_write( TsDriverRef_t driver, const uint8_t * buffer, size_t
 	*buffer_size = (size_t) index;
 	return status;
 }
+
+static TsStatus_t _ts_driver_initialize_id( TsDriverSocketRef_t sock ) {
+//
+//	if( status == TsStatusOk ) {
+//
+//#if defined(__APPLE__) && defined(__MACH__)
+//		struct ifreq ifr;
+//		struct ifconf ifc;
+//		char buf[1024];
+//		int success = 0;
+//
+//		ifc.ifc_len = sizeof( buf );
+//		ifc.ifc_buf = buf;
+//		if( ioctl( sock->_fd, SIOCGIFCONF, &ifc ) == -1 ) {
+//			return status;
+//		}
+//		struct ifreq * it = ifc.ifc_req;
+//		size_t count = ifc.ifc_len / sizeof( struct ifreq );
+//		for( size_t index = 0; index < count; index++ ) {
+//
+//			strcpy( ifr.ifr_name, it->ifr_name );
+//			it = it + 1;
+//
+//			if( ioctl( sock->_fd, SIOCGIFFLAGS, &ifr ) == 0 ) {
+//
+//				if( !( ifr.ifr_flags & IFF_LOOPBACK )) {
+//
+//					int mib[6];
+//					size_t len = 6;
+//
+//					mib[ 0 ] = CTL_NET;
+//					mib[ 1 ] = AF_ROUTE;
+//					mib[ 2 ] = 0;
+//					mib[ 3 ] = AF_LINK;
+//					mib[ 4 ] = NET_RT_IFLIST;
+//					if( ( mib[ 5 ] = if_nametoindex( ifr.ifr_name ) ) == 0 ) {
+//						continue;
+//					}
+//					if( sysctl( mib, 6, buf, &len, NULL, 0 ) < 0 ) {
+//						continue;
+//					}
+//					success = 1;
+//					break;
+//				}
+//			} else {
+//
+//				return status;
+//			}
+//		}
+//		if( success ) {
+//
+//			unsigned char * ptr;
+//			struct if_msghdr * ifm;
+//			struct sockaddr_dl * sdl;
+//
+//			ifm = (struct if_msghdr *) buf;
+//			sdl = (struct sockaddr_dl *) ( ifm + 1 );
+//			ptr = (unsigned char *) LLADDR( sdl );
+//
+//			memset( driver->_spec_id, 0x00, TS_DRIVER_MAX_ID_SIZE );
+//			int index = 0;
+//			for( int i = 0; i < 6; i++ ) {
+//				driver->_spec_id[ index ] = _hex_digits[ ptr[i] >> 4 ];
+//				driver->_spec_id[ index + 1 ] = _hex_digits[ ptr[i] & 0x0f ];
+//				index = index + 2;
+//				driver->_spec_id[ index ] = 0x00;
+//			}
+//			ts_status_debug( "ts_driver_socket: UUID( %s )\n", driver->_spec_id );
+//		}
+//#else
+//		struct ifreq ifr;
+//		struct ifconf ifc;
+//		char buf[1024];
+//		int success = 0;
+//
+//		ifc.ifc_len = sizeof( buf );
+//		ifc.ifc_buf = buf;
+//		if( ioctl( sock->_fd, SIOCGIFCONF, &ifc ) == -1 ) {
+//			return status;
+//		}
+//
+//		struct ifreq * it = ifc.ifc_req;
+//		const struct ifreq * const end = it + ( ifc.ifc_len / sizeof( struct ifreq ));
+//
+//		for( ; it != end; ++it ) {
+//
+//			strcpy( ifr.ifr_name, it->ifr_name );
+//			if( ioctl( sock->_fd, SIOCGIFFLAGS, &ifr ) == 0 ) {
+//
+//				if( !( ifr.ifr_flags & IFF_LOOPBACK )) {
+//
+//					if( ioctl( sock->_fd, SIOCGIFHWADDR, &ifr ) == 0 ) {
+//
+//						success = 1;
+//						break;
+//					}
+//				}
+//			} else {
+//
+//				return status;
+//			}
+//		}
+//		if( success ) {
+//
+//			memset( driver->_spec_id, 0x00, TS_DRIVER_MAX_ID_SIZE );
+//			int index = 0;
+//			for( int i = 0; i < 6; i++ ) {
+//				driver->_spec_id[ index ] = _hex_digits[ ifr.ifr_hwaddr.sa_data[i] >> 4 ];
+//				driver->_spec_id[ index + 1 ] = _hex_digits[ ifr.ifr_hwaddr.sa_data[i] & 0x0f ];
+//				index = index + 2;
+//				driver->_spec_id[ index ] = 0x00;
+//			}
+//			ts_status_debug( "ts_driver_socket: UUID( %s )\n", driver->_spec_id );
+//		}
+//#endif
+//	}
+	return TsStatusErrorNotImplemented;
+}
+
 #endif // __unix__
 #endif // TS_DRIVER_SOCKET
