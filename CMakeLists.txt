@@ -1,6 +1,6 @@
 # Copyright (c) 2017, 2018 Verizon, Inc. All rights reserved.
 
-set( SOURCES ${SOURCES} ts_driver_serial.c ts_driver_socket.c ts_platform.c )
+file( GLOB SOURCES ${SOURCES} *.c )
 
 add_library( ts_sdk_platforms OBJECT "" )
 

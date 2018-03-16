@@ -25,7 +25,7 @@ static void * ts_malloc(size_t);
 static void ts_free(void *, size_t);
 static void ts_assertion(const char *, const char *, int);
 
-TsPlatformVtable_t ts_platform_unix = {
+static TsPlatformVtable_t ts_platform_unix = {
     .initialize = ts_initialize,
     .printf = ts_printf,
     .vprintf = ts_vprintf,

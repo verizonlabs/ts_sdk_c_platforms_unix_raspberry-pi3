@@ -26,7 +26,7 @@ static TsStatus_t ts_read( TsDriverRef_t, const uint8_t *, size_t *, uint32_t );
 static TsStatus_t ts_reader(TsDriverRef_t, void*, TsDriverReader_t);
 static TsStatus_t ts_write( TsDriverRef_t, const uint8_t *, size_t *, uint32_t );
 
-TsDriverVtable_t ts_driver_unix_serial = {
+static TsDriverVtable_t ts_driver_unix_serial = {
 	.create = ts_create,
 	.destroy = ts_destroy,
 	.tick = ts_tick,

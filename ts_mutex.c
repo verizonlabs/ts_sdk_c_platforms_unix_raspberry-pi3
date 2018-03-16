@@ -1,4 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
+#if defined(TS_MUTEX_CUSTOM)
 #include <pthread.h>
 #include <memory.h>
 
@@ -10,7 +11,7 @@ static TsStatus_t ts_destroy(TsMutexRef_t);
 static TsStatus_t ts_lock(TsMutexRef_t);
 static TsStatus_t ts_unlock(TsMutexRef_t);
 
-TsMutexVtable_t ts_mutex_unix = {
+static TsMutexVtable_t ts_mutex_unix = {
 	.create = ts_create,
 	.destroy = ts_destroy,
 	.lock = ts_lock,
@@ -56,3 +57,4 @@ static TsStatus_t ts_unlock(TsMutexRef_t mutex) {
 
 	return TsStatusOk;
 }
+#endif // TS_MUTEX_CUSTOM
