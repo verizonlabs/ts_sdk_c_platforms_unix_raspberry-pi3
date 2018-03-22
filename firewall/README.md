@@ -14,10 +14,10 @@ Linux kernel for version 4.4.0 .
 Install mini firewall
 ```bash
 make
-sudo insmod mf_km.ko
+sudo insmod mf_module.ko
 ```
 
 Uninstall the mini firewall
 ```bash
-sudo rmmod mf_km
+sudo rmmod mf_module
 ```
