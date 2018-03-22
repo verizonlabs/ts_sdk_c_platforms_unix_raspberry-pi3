@@ -154,21 +154,25 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 				if( strcmp( action, "set" ) == 0 ) {
 
 					// set or update a rule or domain
+					ts_status_debug("ts_firewall_unix: delegate to set handler\n" );
 					status = _ts_handle_set( firewall, fields );
 
 				} else if( strcmp( action, "update" ) == 0 ) {
 
 					// get a rule or list of rules
+					ts_status_debug("ts_firewall_unix: delegate to update handler\n" );
 					status = _ts_handle_update( firewall, fields );
 
 				} else if( strcmp( action, "get" ) == 0 ) {
 
 					// get a rule or list of rules
+					ts_status_debug("ts_firewall_unix: delegate to get handler\n" );
 					status = _ts_handle_get( firewall, fields );
 
 				} else if( strcmp( action, "delete" ) == 0 ) {
 
 					// delete a rule
+					ts_status_debug("ts_firewall_unix: delegate to delete handler\n" );
 					status = _ts_handle_delete( firewall, fields );
 
 				} else {
@@ -196,17 +200,38 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 
 static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t fields ) {
 
+	// refresh local copy of mf rules
+	_ts_handle_get_eval( firewall );
+
+	// update configuration
+	TsMessageRef_t array;
 	TsMessageRef_t contents;
 	if( ts_message_get_message( fields, "configuration", &contents ) == TsStatusOk ) {
 
 		// override configuration setting if one or more exist in the message
 		ts_status_debug( "ts_firewall_unix: set configuration\n" );
 		ts_message_get_bool( contents, "enabled", &(firewall->_enabled ) );
-		// TODO - potential memory leak, need to check (i.e., set rules on top of rules already set)
-		ts_message_get_array( contents, "default_rules", &(firewall->_default_rules) );
-		ts_message_get_array( contents, "default_domains", &(firewall->_default_domains) );
+		if( ts_message_has( contents, "default_rules", &array ) == TsStatusOk ) {
+
+			ts_message_destroy( firewall->_default_rules );
+			ts_message_create_copy( array, &( firewall->_default_rules ));
+
+			// TODO - this is additive, should not overwrite instead
+			size_t length;
+			ts_message_get_size( array, &length );
+			for( size_t i = 0; i < length; i++ ) {
+				TsMessageRef_t current = array->value._xfields[ i ];
+				_ts_insert( current, 0 );
+			}
+		}
+		if( ts_message_has( contents, "default_domains", &array ) == TsStatusOk ) {
+
+			ts_message_destroy( firewall->_default_domains );
+			ts_message_create_copy( array, &(firewall->_default_domains) );
+		}
 	}
 
+	// update rules
 	// note that the array can only be 15 items long (limitation of ts_message)
 	if( ts_message_get_array( fields, "rules", &contents ) == TsStatusOk ) {
 
@@ -231,15 +256,20 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 		}
 	}
 
-	// override configuration setting
+	// update domains
 	// note that the array can only be 15 items long (limitation of ts_message)
-	// TODO - potential memory leak, need to check (i.e., set rules on top of rules already set)
-	ts_message_get_array( fields, "domains", &(firewall->_domains) );
+	if( ts_message_has( fields, "domains", &array ) == TsStatusOk ) {
+		ts_message_destroy( firewall->_domains );
+		ts_message_create_copy( array, &(firewall->_domains) );
+	}
 
 	return _ts_handle_set_eval( firewall );
 }
 
 static TsStatus_t _ts_handle_update( TsFirewallRef_t firewall, TsMessageRef_t fields ) {
+
+	// TODO - synce with set
+	ts_platform_assert(0);
 
 	TsMessageRef_t contents;
 	if( ts_message_get_message( fields, "configuration", &contents ) == TsStatusOk ) {
@@ -288,14 +318,16 @@ static TsStatus_t _ts_handle_update( TsFirewallRef_t firewall, TsMessageRef_t fi
 static TsStatus_t _ts_handle_get( TsFirewallRef_t firewall, TsMessageRef_t fields ) {
 
 	TsMessageRef_t contents;
-	if( ts_message_get_message( fields, "configuration", &contents ) == TsStatusOk ) {
+	if( ts_message_has( fields, "configuration", &contents ) == TsStatusOk ) {
 
 		ts_status_debug( "ts_firewall_unix: get configuration\n" );
+
+		ts_message_create_message( fields, "configuration", &contents );
 		ts_message_set_bool( contents, "enabled", firewall->_enabled );
 		ts_message_set_array( contents, "default_rules", firewall->_default_rules );
 		ts_message_set_array( contents, "default_domains", firewall->_default_domains );
 	}
-	if( ts_message_get_message( fields, "rules", &contents ) == TsStatusOk ) {
+	if( ts_message_has( fields, "rules", &contents ) == TsStatusOk ) {
 
 		ts_status_debug( "ts_firewall_unix: get rules\n" );
 
@@ -305,9 +337,10 @@ static TsStatus_t _ts_handle_get( TsFirewallRef_t firewall, TsMessageRef_t field
 		// refresh message
 		ts_message_set_array( fields, "rules", firewall->_rules );
 	}
-	if( ts_message_get_message( fields, "domains", &contents ) == TsStatusOk ) {
+	if( ts_message_has( fields, "domains", &contents ) == TsStatusOk ) {
 
 		ts_status_debug( "ts_firewall_unix: get domains\n" );
+
 		ts_message_set_message( fields, "domains", firewall->_domains );
 	}
 
@@ -337,7 +370,7 @@ static TsStatus_t _ts_handle_delete( TsFirewallRef_t firewall, TsMessageRef_t fi
 
 			} else {
 
-				ts_status_debug( "ts_firewall_delete: id not found, ignoring,...\n" );
+				ts_status_debug( "ts_firewall_unix: delete, id not found, ignoring,...\n" );
 			}
 		}
 	}
@@ -402,7 +435,7 @@ static unsigned int _ip_str_to_hl(char *ip_str) {
 
 	sscanf(ip_str, "%u.%u.%u.%u", ip_array, ip_array+1, ip_array+2, ip_array+3);
 	for (int i=0; i<4; i++) {
-		assert((ip_array[i] <= 255) && "Wrong ip format");
+		ts_platform_assert((ip_array[i] <= 255) && "Wrong ip format");
 	}
 	ip = (ip_array[0] << 24);
 	ip = (ip | (ip_array[1] << 16));
@@ -450,7 +483,7 @@ static TsMessageRef_t _convert_mf( struct mf_rule_link * link ) {
 	ts_message_set_int( xrule, "id", link->id );
 	ts_message_set_string( xrule, "sense", link->rule.in_out == 1 ? "inbound" : "outbound" );
 	ts_message_set_string( xrule, "match", "all" );
-	ts_message_set_string( xrule, "action", link->rule.action == 1 ? "block" : "accept" );
+	ts_message_set_string( xrule, "action", link->rule.action == 1 ? "drop" : "accept" );
 	ts_message_set_string( xrule, "protocol", link->rule.proto == 1 ? "tcp" : "udp" );
 	ts_message_set_string( xrule, "interface", "eth0" );
 
@@ -495,7 +528,7 @@ static struct mf_rule_link * _convert_ts( TsMessageRef_t rule ) {
 		ts_message_get_string( rule, "sense", &temp );
 		if( temp != NULL ) link->rule.in_out = strcmp( temp, "inbound" ) == 0 ? 1 : 2;
 		ts_message_get_string( rule, "action", &temp );
-		if( temp != NULL ) link->rule.action = (char)( strcmp( temp, "block" ) == 0 ? 1 : 0 );
+		if( temp != NULL ) link->rule.action = (char)( strcmp( temp, "drop" ) == 0 ? 1 : 0 );
 		ts_message_get_string( rule, "protocol", &temp);
 		if( temp != NULL ) link->rule.proto = (char)( strcmp( temp, "tcp" ) == 0 ? 1 : 2 );
 
@@ -528,6 +561,8 @@ static struct mf_rule_link * _convert_ts( TsMessageRef_t rule ) {
  */
 static TsStatus_t _ts_handle_set_eval( TsFirewallRef_t firewall ) {
 
+	ts_status_trace( "_ts_handle_set_eval\n" );
+
 	// the user rules list has been modified before this call
 	// do not get all mf rules - i.e., _mf_read();
 
@@ -536,10 +571,11 @@ static TsStatus_t _ts_handle_set_eval( TsFirewallRef_t firewall ) {
 	struct mf_rule_link * current = _mf_root;
 	while( current != NULL ) {
 
-		_mf_delete( 0 );
+		_mf_delete( 1 );
 		current = current->next;
 	}
 
+	// TODO - missing default rules
 	// fill mf rules from ts, if enabled
 	if( firewall->_enabled ) {
 
@@ -557,6 +593,8 @@ static TsStatus_t _ts_handle_set_eval( TsFirewallRef_t firewall ) {
  */
 static TsStatus_t _ts_handle_get_eval( TsFirewallRef_t firewall ) {
 
+	ts_status_trace( "_ts_handle_get_eval\n" );
+
 	// get mf rules (note, this wipes out any local changes)
 	_mf_read();
 
@@ -572,6 +610,8 @@ static TsStatus_t _ts_handle_get_eval( TsFirewallRef_t firewall ) {
  */
 static void _mf_clear() {
 
+	ts_status_trace( "_mf_clear\n" );
+
 	// initialize static firewall rules
 	for( int i = 0; i < TS_FIREWALL_MAX_RULES; i++ ) {
 		_mf_rule_pool[ i ].assigned = false;
@@ -586,13 +626,15 @@ static void _mf_clear() {
  */
 static void _mf_read() {
 
+	ts_status_trace( "_mf_read\n" );
+
 	// clear local
 	_mf_clear();
 
 	// open firewall module
 	FILE * fd = fopen("/proc/miniFirewall", "r");
 	if( fd == NULL ) {
-		ts_status_alarm("mf_read: fopen failed\n");
+		ts_status_alarm("_mf_read: fopen failed\n");
 		return;
 	}
 
@@ -600,13 +642,15 @@ static void _mf_read() {
 	int index = 0;
 	struct mf_rule_link * prev = NULL;
 	struct mf_rule_link current;
-	while( fread( &(current.rule), sizeof(struct mf_rule_struct), 1, fd ) > 0 ) {
+	while( fread( &(current.rule), sizeof(struct mf_rule_struct), 1, fd ) > 0 && index < TS_FIREWALL_MAX_RULES ) {
 
 		// update previous next pointer (including root)
 		if( prev != NULL ) {
+			ts_status_debug( "_mf_read: prev(%d)->next = %d\n", prev->id, index );
 			prev->next = &(_mf_rule_pool[ index ]);
 		} else {
-			_mf_root = &(_mf_rule_pool[ 0 ]);
+			ts_status_debug( "_mf_read: root = %d\n", index );
+			_mf_root = &(_mf_rule_pool[ index ]);
 		}
 
 		// update current with the data held by the firewall
@@ -614,18 +658,11 @@ static void _mf_read() {
 		_mf_rule_pool[ index ].assigned = true;
 		_mf_rule_pool[ index ].prev = prev;
 		_mf_rule_pool[ index ].next = NULL;
-		_mf_rule_pool[ index ].rule.src_ip = current.rule.src_ip;
-		_mf_rule_pool[ index ].rule.dest_ip = current.rule.dest_ip;
-		_mf_rule_pool[ index ].rule.src_port = current.rule.src_port;
-		_mf_rule_pool[ index ].rule.dest_port = current.rule.dest_port;
-		_mf_rule_pool[ index ].rule.in_out = current.rule.in_out;
-		_mf_rule_pool[ index ].rule.src_netmask = current.rule.src_netmask;
-		_mf_rule_pool[ index ].rule.dest_netmask = current.rule.dest_netmask;
-		_mf_rule_pool[ index ].rule.proto = current.rule.proto;
-		_mf_rule_pool[ index ].rule.action = current.rule.action;
+		_mf_rule_pool[ index ].rule = current.rule;
 
 		// update next previous pointer
 		prev = &(_mf_rule_pool[ index ]);
+		index = index + 1;
 	}
 
 	// close and return
@@ -637,11 +674,16 @@ static void _mf_read() {
  */
 static void _mf_write() {
 
+	ts_status_trace( "_mf_write\n" );
+	if( _mf_root == NULL ) {
+		ts_status_debug( "_mf_write: nothing to do, leaving,...\n" );
+		return;
+	}
+
 	// open firewall module
-	FILE * fd;
-	fd = fopen( "/proc/miniFirewall", "w" );
+	FILE * fd = fopen( "/proc/miniFirewall", "w" );
 	if( fd == NULL ) {
-		ts_status_alarm("mf_write: fopen failed\n");
+		ts_status_alarm("_mf_write: fopen failed\n");
 		return;
 	}
 
@@ -649,7 +691,11 @@ static void _mf_write() {
 	struct mf_rule_link * current = _mf_root;
 	while( current != NULL ) {
 
+		ts_status_debug( "_mf_write: writing, %d\n", current->id );
+
 		fwrite( &(current->rule), sizeof(struct mf_rule_struct), 1, fd );
+		fflush(fd);
+
 		current = current->next;
 	}
 
@@ -664,15 +710,18 @@ static void _mf_write() {
  */
 static void _mf_delete( int id ) {
 
+	ts_status_trace( "_mf_delete\n" );
+
 	// open the kernel firewall
 	FILE * fd = fopen("/proc/miniFirewall", "w");
 	if( fd == NULL ) {
-		ts_status_alarm("mf_write: fopen failed\n");
+		ts_status_alarm("_mf_delete: fopen failed\n");
 		return;
 	}
 
 	// write the index to delete
 	fwrite( &id, sizeof(unsigned int), 1, fd );
+	fflush(fd);
 
 	// close and return
 	fclose( fd );
@@ -683,6 +732,8 @@ static void _mf_delete( int id ) {
  * @param firewall
  */
 static void _mf_copy_ts( TsFirewallRef_t firewall ) {
+
+	ts_status_trace( "_mf_copy_ts\n" );
 
 	// create an empty array
 	TsMessageRef_t rules;
@@ -700,8 +751,10 @@ static void _mf_copy_ts( TsFirewallRef_t firewall ) {
 	struct mf_rule_link * current = _mf_root;
 	while( ( current != NULL ) && ( index < TS_MESSAGE_MAX_BRANCHES ) ) {
 
+		ts_status_debug( "_mf_copy_ts: index, %d\n", index);
 		firewall->_rules->value._xfields[ index ] = _convert_mf( current );
 		current = current->next;
+		index = index + 1;
 	}
 }
 
@@ -712,18 +765,27 @@ static void _mf_copy_ts( TsFirewallRef_t firewall ) {
  */
 static void _ts_insert( TsMessageRef_t rule, int index ) {
 
+	ts_status_trace( "_ts_insert\n" );
+
 	// copy rule to unassigned one in pool
 	struct mf_rule_link * xassign = _convert_ts( rule );
 	if( xassign == NULL ) {
-		ts_status_alarm( "ts_firewall_insert: rule pool empty\n");
+		ts_status_alarm( "_ts_insert: rule pool empty\n");
 		return;
 	}
 
 	// insert at top as index or linked-list determines
 	if( index == 0 || _mf_root == NULL ) {
-		xassign->next = _mf_root;
+
+		ts_status_debug( "_ts_insert: insert at root\n" );
+
+		if( _mf_root != NULL ) {
+			xassign->next = _mf_root;
+			_mf_root->prev = xassign;
+		}
 		xassign->prev = NULL;
 		_mf_root = xassign;
+
 		return;
 	}
 
@@ -735,6 +797,8 @@ static void _ts_insert( TsMessageRef_t rule, int index ) {
 
 			if( current->prev == NULL ) {
 
+				ts_status_debug( "_ts_insert: insert at root according to id\n" );
+
 				xassign->next = current;
 				xassign->prev = NULL;
 
@@ -743,6 +807,8 @@ static void _ts_insert( TsMessageRef_t rule, int index ) {
 				return;
 
 			} else {
+
+				ts_status_debug( "_ts_insert: insert at id\n" );
 
 				xassign->next = current;
 				xassign->prev = current->prev;
