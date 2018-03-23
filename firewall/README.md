@@ -1,23 +1,28 @@
 ## Overview
 
-https://github.com/ggary9424/miniFirewall.git
-
-The package is a mini-firewall which is rebuilt according [this artical](http://www.roman10.net/2011/07/23/a-linux-firewall-using-netfilter-part-1overview/) 
+Based on the source provided by, https://github.com/ggary9424/miniFirewall.git
 
 #### Environment
-Linux kernel for version 4.4.0 .
 
+Prepare your RPi,
 
+```
+$ sudo apt update
+$ sudo apt upgrade
+$ sudo apt install raspberrypi-kernel-headers
+$ sudo apt install --reinstall raspberrypi-bootloader raspberrypi-kernel
+$ sudo shutdown -r now
+```
 
 #### Build and Install
 
-Install mini firewall
-```bash
-make
-sudo insmod mf_module.ko
+Build and install the mini-firewall,
+```
+$ make
+$ sudo insmod mf_module.ko
 ```
 
-Uninstall the mini firewall
-```bash
-sudo rmmod mf_module
+Uninstall the mini-firewall,
+```
+$ sudo rmmod mf_module
 ```
