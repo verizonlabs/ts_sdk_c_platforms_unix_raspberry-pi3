@@ -5,7 +5,7 @@ This document serves as a quick start guide to build SDK examples for the Raspbe
 
 ### Prerequisites
 
-Request access to following repositories:
+Pi 3 build requires following repositories:
 
     * https://github.com/verizonlabs/ts_sdk_c
     * https://github.com/verizonlabs/ts_sdk_c_platforms_unix_raspberry-pi3
