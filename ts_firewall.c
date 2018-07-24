@@ -3,7 +3,7 @@
 #include "ts_platform.h"
 #include "ts_firewall.h"
 
-static TsStatus_t ts_create(TsFirewallRef_t *);
+static TsStatus_t ts_create(TsFirewallRef_t *, TsStatus_t (*alertCallback)(TsMessageRef_t, char *));
 static TsStatus_t ts_destroy(TsFirewallRef_t);
 static TsStatus_t ts_tick(TsFirewallRef_t, uint32_t);
 static TsStatus_t ts_handle(TsFirewallRef_t, TsMessageRef_t);
@@ -40,7 +40,7 @@ static void _ts_insert( TsMessageRef_t, int );
  * - TsStatusOk
  * - TsStatusError[Code]
  */
-static TsStatus_t ts_create( TsFirewallRef_t * firewall ) {
+static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alertCallback)(TsMessageRef_t, char *) ) {
 
 	ts_status_trace( "ts_firewall_create\n" );
 	TsStatus_t status = TsStatusOk;
