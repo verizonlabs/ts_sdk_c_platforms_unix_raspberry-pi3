@@ -17,6 +17,6 @@ target_include_directories( ts_sdk_platforms PRIVATE
     ${CMAKE_SOURCE_DIR}/sdk_dependencies/mocana/src )
 
 # note - mocana specific defines
-target_compile_definitions( ts_sdk_components PRIVATE
+target_compile_definitions( ts_sdk_platforms PRIVATE
     __RTOS_TSSDK__ )
     
