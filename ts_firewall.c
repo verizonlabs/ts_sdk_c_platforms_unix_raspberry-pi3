@@ -1,33 +1,90 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
-#if defined(TS_FIREWALL_CUSTOM)
+#if !defined(X_DO_NOT_COMPILE_YET)
+#include <stdio.h>
+#include <string.h>
+#include "wall/mfw_internal.h"
+#include "wall/mfirewall.h"
+
 #include "ts_platform.h"
 #include "ts_firewall.h"
+#include "ts_status.h"
+#include "ts_util.h"
+#include "ts_log.h"
 
-static TsStatus_t ts_create(TsFirewallRef_t *, TsStatus_t (*alertCallback)(TsMessageRef_t, char *));
+static TsStatus_t ts_create(TsFirewallRef_t *,  TsStatus_t (*alert_callback) (TsMessageRef_t, char *) );
 static TsStatus_t ts_destroy(TsFirewallRef_t);
 static TsStatus_t ts_tick(TsFirewallRef_t, uint32_t);
 static TsStatus_t ts_handle(TsFirewallRef_t, TsMessageRef_t);
+static TsStatus_t ts_set_log( TsLogConfigRef_t );
+static TsMessageRef_t ts_stats();
+static TsStatus_t ts_set_suspended(TsFirewallRef_t, bool);
+static bool ts_suspended(TsFirewallRef_t);
+
 static TsStatus_t _ts_handle_set(TsFirewallRef_t, TsMessageRef_t);
 static TsStatus_t _ts_handle_update(TsFirewallRef_t, TsMessageRef_t);
 static TsStatus_t _ts_handle_get(TsFirewallRef_t, TsMessageRef_t);
 static TsStatus_t _ts_handle_delete(TsFirewallRef_t, TsMessageRef_t);
-static TsStatus_t _ts_handle_set_eval( TsFirewallRef_t );
-static TsStatus_t _ts_handle_get_eval( TsFirewallRef_t );
 
-static TsFirewallVtable_t ts_firewall_unix = {
+static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t );
+static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t, unsigned long* );
+static TsStatus_t _mf_set_enabled( TsFirewallRef_t );
+static TsStatus_t _mf_set_default_policy( TsMessageRef_t policy );
+static TsStatus_t _mf_set_default_rules( TsFirewallRef_t );
+static TsStatus_t _mf_set_custom_domains( TsFirewallRef_t );
+static TsStatus_t _mf_set_default_domains( TsFirewallRef_t );
+static TsStatus_t _mf_delete( char * sense, int id );
+static TsStatus_t _ts_refresh_array( TsMessageRef_t * );
+
+static void _ts_make_rejection_alert( TsMessageRef_t *, TsMessageRef_t *, TsMessageRef_t *, int, char *, PMFIREWALL_DecisionInfo);
+static char * _ip_to_string( ubyte4, char *, size_t );
+static char * _mac_to_string( ubyte mac[6], char * string, size_t string_size );
+static TsStatus_t _log( TsLogLevel_t level, char *message );
+
+#define FIREWALL_LOG(level, ...) {char log_string[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log(level, log_string);}
+
+// TODO - these should be part of the (custom) firewall object
+#define TS_FIREWALL_MAX_RULES 7
+// NOTE - today we're just storing 7 inbound and 7 outbound
+//        this limitation is due to ts_message array size
+//        ts_message.h, TS_MESSAGE_MAX_BRANCHES
+static MFIREWALL_RuleEntry _inbound[ TS_FIREWALL_MAX_RULES ];
+static MFIREWALL_RuleEntry _outbound[ TS_FIREWALL_MAX_RULES ];
+
+// TODO - this should be a member of firewall
+static TsMessageRef_t _statistics;
+static TsMessageRef_t _policy;
+static MFIREWALL_Statistics last_reported_statistics;
+
+static TsFirewallVtable_t ts_firewall_mocana = {
 	.create = ts_create,
 	.destroy = ts_destroy,
 	.tick = ts_tick,
 	.handle = ts_handle,
+	.set_log = ts_set_log,
+	.stats = ts_stats,
+	.set_suspended = ts_set_suspended,
+	.suspended = ts_suspended,
 };
-const TsFirewallVtable_t * ts_firewall = &(ts_firewall_unix);
+const TsFirewallVtable_t * ts_firewall = &(ts_firewall_mocana);
 
-static void _mf_clear();
-static void _mf_read();
-static void _mf_write();
-static void _mf_delete( int );
-static void _mf_copy_ts( TsFirewallRef_t );
-static void _ts_insert( TsMessageRef_t, int );
+static TsCallbackContext_t ts_callback_context = {
+	.alerts_enabled = FALSE,
+	.alert_in_progress = FALSE,
+	.alert_to_send = NULL,
+	.alert_threshold_inbound = 0,
+	.alert_threshold_outbound = 0,
+	.inbound_rejections = 0,
+	.outbound_rejections = 0,
+	.alert_callback = NULL,
+	.log = NULL,
+};
+
+static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo);
+#define TEST_CONFIG_WALL
+
+//hardcode for now
+#define STATISTICS_REPORTING_INTERVAL 10000
+
 
 /**
  * Allocate and initialize a new firewall object.
@@ -35,45 +92,212 @@ static void _ts_insert( TsMessageRef_t, int );
  * @param firewall
  * [on/out] The pointer to a pre-existing TsFirewallRef_t, which will be initialized with the firewall state.
  *
+ * @param alert_callback
+ * [in] Pointer to a function that will send an alert message.
+ *
  * @return
  * The return status (TsStatus_t) of the function, see ts_status.h for more information.
  * - TsStatusOk
  * - TsStatusError[Code]
  */
-static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alertCallback)(TsMessageRef_t, char *) ) {
+static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_callback) (TsMessageRef_t, char *) ) {
 
 	ts_status_trace( "ts_firewall_create\n" );
 	TsStatus_t status = TsStatusOk;
 
-	// check for kernel module
-	FILE * fp = fopen("/proc/miniFirewall", "r");
-	if( fp == NULL ) {
-		ts_status_alarm( "ts_firewall_create: mini-firewall kernel module not found, check installation\n" );
-		status = TsStatusErrorNotImplemented;
+	// intialize firewall system
+	if( MFIREWALL_initialize() != OK ) {
+		ts_status_alarm("ts_firewall_create: firewall initialize failed\n" );
+		return TsStatusErrorInternalServerError;
 	}
-	fclose(fp);
+
+	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
+	ts_callback_context.alert_callback = alert_callback;
 
 	// initialize firewall object
 	*firewall = (TsFirewallRef_t)ts_platform_malloc( sizeof( TsFirewall_t ) );
 	if( *firewall == NULL ) {
+		ts_status_alarm( "ts_firewall_create: malloc failed\n" );
 		return TsStatusErrorInternalServerError;
 	}
+	memset( *firewall, sizeof( TsFirewall_t ), 0x00 );
 
-	ts_message_create( &((*firewall)->_default_domains) );
-	ts_message_create( &((*firewall)->_default_rules ) );
-	ts_message_create( &((*firewall)->_domains ) );
-	ts_message_create( &((*firewall)->_rules ) );
+	_ts_refresh_array( &((*firewall)->_default_domains) );
+	_ts_refresh_array( &((*firewall)->_default_rules ) );
+	_ts_refresh_array( &((*firewall)->_domains ) );
+	_ts_refresh_array( &((*firewall)->_rules ) );
 
-	(*firewall)->_default_domains->type = TsTypeArray;
-	(*firewall)->_default_rules->type = TsTypeArray;
-	(*firewall)->_domains->type = TsTypeArray;
-	(*firewall)->_rules->type = TsTypeArray;
-	(*firewall)->_enabled = false;
+	(*firewall)->_statistics_reporting_interval = STATISTICS_REPORTING_INTERVAL; //hardcode for now
+	(*firewall)->_last_report_time = 0;
 
-	_mf_clear();
+	// TODO - should be part of custom firewall object
+	ts_message_create( &_policy );
+	ts_message_create( &_statistics );
 
-	ts_status_debug( "ts_firewall_create: mini-firewall kernel module found! firewall now READY.\n" );
+	ts_suspend_set_firewall( *firewall );
+
+	(*firewall)->_enabled = FALSE;
+
+
+#ifdef TEST_CONFIG_WALL
+	(*firewall)->_enabled = true;
+	int n_rules = 0;
+	_mf_set_enabled(*firewall);
+
+	ts_callback_context.alerts_enabled = true;
+	ts_callback_context.alert_threshold_inbound = 2;
+	ts_callback_context.alert_threshold_outbound = 2;
+
+	TsMessageRef_t rejectMessage, whitelistMessage, source;
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "inbound");
+	ts_message_set_string(rejectMessage, "protocol", "icmp");
+
+	ts_message_create(&whitelistMessage);
+
+	ts_message_create(&source);
+	ts_message_set_string(source, "address", "168.128.212.248");
+	ts_message_set_string(source, "port", "8883");
+	ts_message_set_message(whitelistMessage, "source", source);
+
+	ts_message_set_string(whitelistMessage, "action", "accept");
+	ts_message_set_string(whitelistMessage, "sense", "inbound");
+	ts_message_set_string(whitelistMessage, "protocol", "icmp");
+
+	unsigned long whitelistIndex = 0;
+	ts_status_debug("inserting whitelist message\n");
+	_mf_insert_custom_rule(whitelistMessage, &whitelistIndex);
+	n_rules++;
+
+	unsigned long rejectIndex = 1;
+	ts_status_debug("inserting reject message\n");
+	_mf_insert_custom_rule(rejectMessage, &rejectIndex);
+	n_rules++;
+	ts_status_debug("done inserting firewall rules\n");
+
+	ts_message_destroy(rejectMessage);
+	ts_message_destroy(whitelistMessage);
+
+	FIREWALL_LOG(TsLogLevelInfo, "Test config firewall rules installed; number of rules = %d\n", n_rules);
+#endif // TEST_CONFIG
+
 	return status;
+}
+
+static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo) {
+	if (pDecisionInfo->action == MFIREWALL_ACTION_DROP) {
+		FIREWALL_LOG(TsLogLevelAlert, "Packet rejected, sense = %s\n", (pDecisionInfo->ruleListIndex == MFIREWALL_RULE_LIST_INBOUND ? "inbound" : "outbound"));
+		switch(pDecisionInfo->ruleListIndex) {
+		case MFIREWALL_RULE_LIST_INBOUND:
+			context->inbound_rejections++;
+			break;
+		case MFIREWALL_RULE_LIST_OUTBOUND:
+			context->outbound_rejections++;
+			break;
+		}
+		if (context->alerts_enabled && !(context->alert_in_progress)) {
+			if (context->alert_threshold_inbound > 0
+					&& context->inbound_rejections
+							>= context->alert_threshold_inbound) {
+				context->alert_in_progress = TRUE;
+				// send rejection alert
+				TsMessageRef_t alert, source, dest;
+				_ts_make_rejection_alert(&alert, &source, &dest,
+						context->inbound_rejections, "inbound", pDecisionInfo);
+
+				context->alert_to_send = alert;
+
+				ts_message_destroy(source);
+				ts_message_destroy(dest);
+
+				context->inbound_rejections = 0;
+			}
+			if (context->alert_threshold_outbound > 0
+					&& context->outbound_rejections
+							>= context->alert_threshold_outbound) {
+				context->alert_in_progress = TRUE;
+				// send rejection alert
+				TsMessageRef_t alert, source, dest;
+				_ts_make_rejection_alert(&alert, &source, &dest,
+						context->outbound_rejections, "outbound",
+						pDecisionInfo);
+
+				context->alert_to_send = alert;
+
+				ts_message_destroy(source);
+				ts_message_destroy(dest);
+
+				context->outbound_rejections = 0;
+			}
+		}
+	}
+}
+
+#define PROTOCOL_HEADER(p) ((ubyte *)p) + (p->versionAndHeaderLength & 0xF) * 4
+
+static void _ts_make_rejection_alert( TsMessageRef_t *alert, TsMessageRef_t *source, TsMessageRef_t *dest, int packets, char *sense, PMFIREWALL_DecisionInfo pDecisionInfo) {
+
+	PM_IPV4_HEADER mfw_ip_header = pDecisionInfo->pIpHeader;
+	PM_ETHERNET_HEADER mfw_eth_header = pDecisionInfo->pEthernetHeader;
+	PM_TCP_HEADER mfw_tcp_header;
+	PM_UDP_HEADER mfw_udp_header;
+	char tmp [ 25 ];
+	TsMessageRef_t fields;
+	const char *protocol = NULL;
+
+	char transactionid[UUID_SIZE];
+
+	ts_message_create( alert ); // the alert
+	ts_message_create( &fields ); // the alert
+
+	ts_message_create( source ); // Filter object representing the source
+	ts_message_create( dest ); // Filter object representing the destination
+
+	ts_uuid(transactionid);
+
+	ts_message_set_string( *alert, "transactionid", transactionid);
+	ts_message_set_string( *alert, "kind", "ts.event.firewall.alert");
+	ts_message_set_string( *alert, "action", "update");
+	ts_message_set_int( fields, "time", (int)ts_platform_time());
+	ts_message_set_int( fields, "packets", packets);
+	ts_message_set_string( fields, "sense", sense);
+
+	ts_message_set_string( fields, "interface", "lan"); // TODO: make this responsive; for now, it's always going to be Ethernet
+
+	switch(mfw_ip_header->protocol) {
+	case M_IP_PROTOCOL_ICMP:
+		protocol = "icmp";
+		break;
+	case M_IP_PROTOCOL_TCP:
+		protocol = "tcp";
+		mfw_tcp_header = (PM_TCP_HEADER)PROTOCOL_HEADER(mfw_ip_header);
+		ts_message_set_int( *source, "port", mfw_tcp_header->sourcePort);
+		ts_message_set_int( *dest, "port", mfw_tcp_header->destinationPort);
+		break;
+	case M_IP_PROTOCOL_UDP:
+		protocol = "udp";
+		mfw_udp_header = (PM_UDP_HEADER)PROTOCOL_HEADER(mfw_ip_header);
+		ts_message_set_int( *source, "port", mfw_udp_header->sourcePort);
+		ts_message_set_int( *dest, "port", mfw_udp_header->destinationPort);
+		break;
+	}
+	if (protocol != NULL) {
+		ts_message_set_string( fields, "protocol", protocol);
+	}
+
+	ts_message_set_string( *source, "address", _ip_to_string( mfw_ip_header->sourceAddress, tmp, 25) );
+	ts_message_set_string( *dest, "address", _ip_to_string( mfw_ip_header->destinationAddress, tmp, 25) );
+	ts_message_set_string( *source, "mac", _mac_to_string( mfw_eth_header->sourceAddress, tmp, 25) );
+	ts_message_set_string( *dest, "mac", _mac_to_string( mfw_eth_header->destinationAddress, tmp, 25) );
+
+
+	ts_message_set_message( fields, "source", *source );
+	ts_message_set_message( fields, "destination", *dest );
+
+	ts_message_set_message( *alert, "fields", fields );
+
+	ts_message_destroy(fields);
 }
 
 /**
@@ -92,10 +316,14 @@ static TsStatus_t ts_destroy( TsFirewallRef_t firewall ) {
 	ts_status_trace( "ts_firewall_destroy\n" );
 	ts_platform_assert( firewall != NULL );
 
+	MFIREWALL_shutdown();
+
 	ts_message_destroy( firewall->_default_domains );
 	ts_message_destroy( firewall->_default_rules );
 	ts_message_destroy( firewall->_domains );
 	ts_message_destroy( firewall->_rules );
+	ts_message_destroy( _policy );
+	ts_message_destroy( _statistics );
 
 	ts_platform_free( firewall, sizeof( TsFirewall_t ) );
 
@@ -121,7 +349,25 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 
 	ts_status_trace( "ts_firewall_tick\n" );
 
-	// do nothing
+	uint64_t time = ts_platform_time();
+	if (firewall && firewall->_enabled && !(firewall->_suspended)
+			&& firewall->_statistics_reporting_interval > 0
+			&& (time - firewall->_last_report_time
+					>= firewall->_statistics_reporting_interval)) {
+		TsMessageRef_t stats = ts_firewall_stats();
+		ts_callback_context.alert_callback(stats, "ts.event.firewall.statistics");
+		ts_message_destroy(stats);
+
+		firewall->_last_report_time = ts_platform_time();
+	}
+
+	if (ts_callback_context.alert_in_progress && ts_callback_context.alert_to_send != NULL) {
+		ts_message_dump(ts_callback_context.alert_to_send);
+		ts_callback_context.alert_callback(ts_callback_context.alert_to_send, "ts.event.firewall.alert");
+		ts_message_destroy(ts_callback_context.alert_to_send);
+		ts_callback_context.alert_to_send = NULL;
+		ts_callback_context.alert_in_progress = FALSE;
+	}
 
 	return TsStatusOk;
 }
@@ -154,25 +400,25 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 				if( strcmp( action, "set" ) == 0 ) {
 
 					// set or update a rule or domain
-					ts_status_debug("ts_firewall_unix: delegate to set handler\n" );
+					ts_status_debug("ts_firewall_nano: delegate to set handler\n" );
 					status = _ts_handle_set( firewall, fields );
 
 				} else if( strcmp( action, "update" ) == 0 ) {
 
 					// get a rule or list of rules
-					ts_status_debug("ts_firewall_unix: delegate to update handler\n" );
+					ts_status_debug("ts_firewall_nano: delegate to update handler\n" );
 					status = _ts_handle_update( firewall, fields );
 
 				} else if( strcmp( action, "get" ) == 0 ) {
 
 					// get a rule or list of rules
-					ts_status_debug("ts_firewall_unix: delegate to get handler\n" );
+					ts_status_debug("ts_firewall_nano: delegate to get handler\n" );
 					status = _ts_handle_get( firewall, fields );
 
 				} else if( strcmp( action, "delete" ) == 0 ) {
 
 					// delete a rule
-					ts_status_debug("ts_firewall_unix: delegate to delete handler\n" );
+					ts_status_debug("ts_firewall_nano: delegate to delete handler\n" );
 					status = _ts_handle_delete( firewall, fields );
 
 				} else {
@@ -201,147 +447,164 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t fields ) {
 
 	// refresh local copy of mf rules
-	_ts_handle_get_eval( firewall );
+	_mf_handle_get_eval( firewall );
 
 	// update configuration
 	TsMessageRef_t array;
 	TsMessageRef_t contents;
-	if( ts_message_get_message( fields, "configuration", &contents ) == TsStatusOk ) {
+	TsMessageRef_t object;
+	TsMessageRef_t rejectMessage;
+	unsigned long blacklist_index = 0;
+	unsigned long whitelist_index = 0;
+	if( ts_message_get_message( fields, "firewall", &object ) == TsStatusOk ) {
 
-		// override configuration setting if one or more exist in the message
-		ts_status_debug( "ts_firewall_unix: set configuration\n" );
-		ts_message_get_bool( contents, "enabled", &(firewall->_enabled ) );
-		if( ts_message_has( contents, "default_rules", &array ) == TsStatusOk ) {
+		if( ts_message_get_message( object, "configuration", &contents ) == TsStatusOk ) {
 
-			ts_message_destroy( firewall->_default_rules );
-			ts_message_create_copy( array, &( firewall->_default_rules ));
+			// override configuration setting if one or more exist in the message
+			ts_status_debug( "ts_firewall_nano: set configuration\n" );
+			if( ts_message_get_bool( contents, "enable", &(firewall->_enabled ) ) == TsStatusOk ) {
 
-			// TODO - this is additive, should not overwrite instead
+				ts_status_info( "_ts_firewall_set: enabled, %d\n", firewall->_enabled );
+				FIREWALL_LOG(TsLogLevelInfo, "Firewall enabled = %s\n", firewall->_enabled ? "true" : "false");
+				_mf_set_enabled( firewall );
+			}
+			// TODO - Default policy should be part of the firewall structure
+			if( ts_message_has( contents, "default_policy", &array ) == TsStatusOk ) {
+
+				ts_status_info( "_ts_firewall_set: default-policy\n" );
+				FIREWALL_LOG(TsLogLevelInfo, "Default policy set\n");
+				ts_message_destroy( _policy );
+				ts_message_create_copy( array, &_policy );
+				_mf_set_default_policy( _policy );
+			}
+			if( ts_message_has( contents, "default_rules", &array ) == TsStatusOk ) {
+
+				ts_message_destroy( firewall->_default_rules );
+				ts_message_create_copy( array, &( firewall->_default_rules ));
+				FIREWALL_LOG(TsLogLevelInfo, "Default rules set\n");
+				_mf_set_default_rules( firewall );
+			}
+			if( ts_message_has( contents, "default_domains", &array ) == TsStatusOk ) {
+
+				ts_message_destroy( firewall->_default_domains );
+				ts_message_create_copy( array, &(firewall->_default_domains) );
+				FIREWALL_LOG(TsLogLevelInfo, "Default domains set\n");
+				// TODO
+				_mf_set_default_domains( firewall );
+			}
+
+			// alert settings
+			if( ts_message_get_bool( contents, "alert_enabled", &(ts_callback_context.alerts_enabled) ) == TsStatusOk ) {
+				FIREWALL_LOG(TsLogLevelInfo, "alerts enabled: %s \n", ts_callback_context.alerts_enabled ? "true" : "false");
+				ts_status_info( "_ts_firewall_set: alerts_enabled, %d\n", ts_callback_context.alerts_enabled );
+			}
+			if( ts_message_get_int( contents, "alert_threshold_inbound", &(ts_callback_context.alert_threshold_inbound) ) == TsStatusOk ) {
+				FIREWALL_LOG(TsLogLevelInfo, "Inbound alert threshold set to %d\n", ts_callback_context.alert_threshold_inbound);
+				ts_status_info( "_ts_firewall_set: alert_threshold_inbound, %d\n", ts_callback_context.alert_threshold_inbound );
+			}
+			if( ts_message_get_int( contents, "alert_threshold_outbound", &(ts_callback_context.alert_threshold_outbound) ) == TsStatusOk ) {
+				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
+				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
+			}
+		}
+
+		// update rules
+		// note that the array can only be 15 items long (limitation of ts_message)
+		if( ts_message_get_array( object, "rules", &contents ) == TsStatusOk ) {
+
+			ts_status_debug( "ts_firewall_nano: set rules\n" );
 			size_t length;
-			ts_message_get_size( array, &length );
+			ts_message_get_size( contents, &length );
+			ts_status_debug( "length is: %d\n", length );
 			for( size_t i = 0; i < length; i++ ) {
-				TsMessageRef_t current = array->value._xfields[ i ];
-				_ts_insert( current, 0 );
+
+				// set by id, or add to back w/o id ("set" or "update")
+				TsMessageRef_t current = contents->value._xfields[ i ];
+				unsigned long id = 0;
+				int id_int = 0;
+				if( ts_message_get_int( current, "id", &id_int ) == TsStatusOk ) {
+					id = id_int;
+					// TODO - _zz_update( current, id );
+
+					FIREWALL_LOG(TsLogLevelInfo, "Inserting firewall rule: index = %d\n", id);
+
+					_mf_insert_custom_rule( current, &id );
+					ts_status_debug("Adding at idx: %d\n", id);
+
+				} else {
+
+					// TODO - _zz_append( current );
+					FIREWALL_LOG(TsLogLevelInfo, "Inserting firewall rule: index = %d\n", whitelist_index);
+					_mf_insert_custom_rule( current, &whitelist_index );
+					ts_status_debug("Adding at idx: %d\n", whitelist_index);
+					whitelist_index++;
+				}
 			}
+			ts_message_create(&rejectMessage);
+			ts_message_set_string(rejectMessage, "action", "drop");
+			ts_message_set_string(rejectMessage, "sense", "inbound");
+			ts_message_set_string(rejectMessage, "protocol", "icmp");
+			ts_status_debug("inserting reject message\n");
+			_mf_insert_custom_rule(rejectMessage, &blacklist_index);
+			ts_status_debug("done inserting reject rule at:%d\n", blacklist_index);
+			ts_message_destroy(rejectMessage);
 		}
-		if( ts_message_has( contents, "default_domains", &array ) == TsStatusOk ) {
 
-			ts_message_destroy( firewall->_default_domains );
-			ts_message_create_copy( array, &(firewall->_default_domains) );
-		}
-	}
+		// update domains
+		// note that the array can only be 15 items long (limitation of ts_message)
+		if( ts_message_has( object, "domains", &array ) == TsStatusOk ) {
 
-	// update rules
-	// note that the array can only be 15 items long (limitation of ts_message)
-	if( ts_message_get_array( fields, "rules", &contents ) == TsStatusOk ) {
-
-		ts_status_debug( "ts_firewall_unix: set rules\n" );
-		size_t length;
-		ts_message_get_size( contents, &length );
-		for( size_t i = 0; i < length; i++ ) {
-
-			// set by id, or add to back w/o id ("set" or "update")
-			TsMessageRef_t current = contents->value._xfields[ i ];
-			int id = 0;
-			if( ts_message_get_int( current, "id", &id ) == TsStatusOk ) {
-
-				// TODO - _zz_update( current, id );
-				_ts_insert( current, id );
-
-			} else {
-
-				// TODO - _zz_append( current );
-				_ts_insert( current, 0 );
-			}
+			FIREWALL_LOG(TsLogLevelInfo, "Updating firewall domains\n");
+			ts_message_destroy( firewall->_domains );
+			ts_message_create_copy( array, &(firewall->_domains) );
+			// TODO
+			_mf_set_custom_domains( firewall );
 		}
 	}
 
-	// update domains
-	// note that the array can only be 15 items long (limitation of ts_message)
-	if( ts_message_has( fields, "domains", &array ) == TsStatusOk ) {
-		ts_message_destroy( firewall->_domains );
-		ts_message_create_copy( array, &(firewall->_domains) );
-	}
-
-	return _ts_handle_set_eval( firewall );
+	return TsStatusOk;
 }
 
 static TsStatus_t _ts_handle_update( TsFirewallRef_t firewall, TsMessageRef_t fields ) {
 
-	// TODO - synce with set
-	ts_platform_assert(0);
-
-	TsMessageRef_t contents;
-	if( ts_message_get_message( fields, "configuration", &contents ) == TsStatusOk ) {
-
-		// override configuration setting if one or more exist in the message
-		ts_status_debug( "ts_firewall_unix: set configuration\n" );
-		ts_message_get_bool( contents, "enabled", &(firewall->_enabled ) );
-		// TODO - potential memory leak, need to check (i.e., set rules on top of rules already set)
-		ts_message_get_array( contents, "default_rules", &(firewall->_default_rules) );
-		ts_message_get_array( contents, "default_domains", &(firewall->_default_domains) );
-	}
-
-	// note that the array can only be 15 items long (limitation of ts_message)
-	if( ts_message_get_array( fields, "rules", &contents ) == TsStatusOk ) {
-
-		ts_status_debug( "ts_firewall_unix: update rules\n" );
-		size_t length;
-		ts_message_get_size( contents, &length );
-		for( size_t i = 0; i < length; i++ ) {
-
-			// insert-before (using "update") by id, or add to back w/o id ("set" or "update")
-			TsMessageRef_t current = contents->value._xfields[ i ];
-			int id = 0;
-			if( ts_message_get_int( current, "id", &id ) == TsStatusOk ) {
-
-				// TODO - _zz_insert( current, id );
-				_ts_insert( current, id );
-
-			} else {
-
-				// TODO - _zz_append( current );
-				_ts_insert( current, 0 );
-			}
-		}
-	}
-
-	// override configuration setting
-	// note that the array can only be 15 items long (limitation of ts_message)
-	// TODO - potential memory leak, need to check (i.e., set rules on top of rules already set)
-	ts_message_get_array( fields, "domains", &(firewall->_domains) );
-
-	// reset firewall rules in kernel module
-	return _ts_handle_set_eval( firewall );
+	// TODO - reset firewall rules in kernel module, like set (but append becomes insert-at)
+	return TsStatusErrorNotImplemented;
 }
 
 static TsStatus_t _ts_handle_get( TsFirewallRef_t firewall, TsMessageRef_t fields ) {
 
+	// refresh firewall rules from kernel module
+	_mf_handle_get_eval( firewall );
+
 	TsMessageRef_t contents;
 	if( ts_message_has( fields, "configuration", &contents ) == TsStatusOk ) {
 
-		ts_status_debug( "ts_firewall_unix: get configuration\n" );
-
+		ts_status_debug( "ts_firewall_nano: get configuration\n" );
 		ts_message_create_message( fields, "configuration", &contents );
 		ts_message_set_bool( contents, "enabled", firewall->_enabled );
+		// TODO - should we copy?
+		ts_message_set_message( contents, "default_policy", _policy );
 		ts_message_set_array( contents, "default_rules", firewall->_default_rules );
 		ts_message_set_array( contents, "default_domains", firewall->_default_domains );
 	}
 	if( ts_message_has( fields, "rules", &contents ) == TsStatusOk ) {
 
-		ts_status_debug( "ts_firewall_unix: get rules\n" );
-
-		// refresh firewall rules from kernel module
-		_ts_handle_get_eval( firewall );
-
-		// refresh message
+		ts_status_debug( "ts_firewall_nano: get rules\n" );
+		// TODO - should we copy?
 		ts_message_set_array( fields, "rules", firewall->_rules );
 	}
 	if( ts_message_has( fields, "domains", &contents ) == TsStatusOk ) {
 
-		ts_status_debug( "ts_firewall_unix: get domains\n" );
+		ts_status_debug( "ts_firewall_nano: get domains\n" );
+		// TODO - should we copy?
+		ts_message_set_array( fields, "domains", firewall->_domains );
+	}
+	if( ts_message_has( fields, "statistics", &contents ) == TsStatusOk ) {
 
-		ts_message_set_message( fields, "domains", firewall->_domains );
+		ts_status_debug( "ts_firewall_nano: get statistics\n" );
+		// TODO - this should be a member of firewall
+		// TODO - should we copy?
+		ts_message_set_message( fields, "fields", _statistics );
 	}
 
 	return TsStatusOk;
@@ -353,7 +616,7 @@ static TsStatus_t _ts_handle_delete( TsFirewallRef_t firewall, TsMessageRef_t fi
 	TsMessageRef_t contents;
 	if( ts_message_get_array( fields, "rules", &contents ) == TsStatusOk ) {
 
-		ts_status_debug( "ts_firewall_unix: delete rule by id\n" );
+		ts_status_debug( "ts_firewall_nano: delete rule by id\n" );
 		size_t length;
 		ts_message_get_size( contents, &length );
 		for( size_t i = 0; i < length; i++ ) {
@@ -363,227 +626,402 @@ static TsStatus_t _ts_handle_delete( TsFirewallRef_t firewall, TsMessageRef_t fi
 			int id = 0;
 			if( ts_message_get_int( current, "id", &id ) == TsStatusOk ) {
 
-				ts_status_debug( "ts_firewall_unix: delete %d\n", id );
+				char * sense = "inbound";
+				ts_message_get_string( current, "sense", &sense );
 
-				// delete the rule from the kernel module
-				_mf_delete( id );
+				ts_status_debug( "ts_firewall_nano: delete %s, %d\n", sense, id );
+				FIREWALL_LOG(TsLogLevelInfo, "Deleting firewall rule %d\n", id);
+				status = _mf_delete( sense, id );
 
 			} else {
 
-				ts_status_debug( "ts_firewall_unix: delete, id not found, ignoring,...\n" );
+				ts_status_debug( "ts_firewall_nano: delete, id not found, ignoring,...\n" );
 			}
 		}
 	}
 	return status;
 }
 
-// ////////////////////////////////////////////////////////////////////////////
-// mini-firewall utilities
-
-struct mf_rule_struct {
-	unsigned int src_ip;
-	unsigned int dest_ip;
-	unsigned int src_port;
-	unsigned int dest_port;
-	int in_out;                 // IN->1, OUT->2
-	char src_netmask;
-	char dest_netmask;
-	char proto;                 // TCP->1, UDP->2, ALL->3
-	char action;                // LOG->0， BLOCK->1
-};
-
-struct mf_rule_link {
-	int id;
-	bool assigned;
-	struct mf_rule_link * next;
-	struct mf_rule_link * prev;
-	struct mf_rule_struct rule;
-};
-
-/**
- * User copy of the kernel firewall module rules
- */
-#define TS_FIREWALL_MAX_RULES 256
-static struct mf_rule_link * _mf_root = NULL;
-static struct mf_rule_link _mf_rule_pool[ TS_FIREWALL_MAX_RULES ];
-
-/**
- * Find first unassigned rule in pool
- * @return
- */
-static struct mf_rule_link * _get_unassigned_rule() {
-
-	for( int i = 0; i < TS_FIREWALL_MAX_RULES; i++ ) {
-
-		if( _mf_rule_pool[i].assigned == false ) {
-			_mf_rule_pool[i].assigned = true;
-			_mf_rule_pool[i].next = NULL;
-			_mf_rule_pool[i].prev = NULL;
-			return &(_mf_rule_pool[i]);
-		}
+static TsStatus_t _ts_refresh_array( TsMessageRef_t * xarray ) {
+	if( *xarray != NULL ) {
+		ts_message_destroy( *xarray );
 	}
-	return NULL;
+	ts_message_create( xarray );
+	(*xarray)->type = TsTypeArray;
+	return TsStatusOk;
 }
 
-static unsigned int _ip_str_to_hl(char *ip_str) {
+/**
+ * Private Mini-firewall Section
+ */
 
-	unsigned int ip_array[4];
-	unsigned int ip = 0;
-	if (ip_str==NULL) {
-		return 0;
+static char * _mac_to_string( ubyte mac[6], char * string, size_t string_size ) {
+	snprintf( string, string_size, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5] );
+	return string;
+}
+
+static char * _ip_to_string( ubyte4 ip, char * string, size_t string_size ) {
+	ubyte xip[4];
+	xip[0] = (ubyte)(ip>>24);
+	xip[1] = (ubyte)(ip>>16);
+	xip[2] = (ubyte)(ip>>8);
+	xip[3] = (ubyte)(ip);
+	snprintf( string, string_size, "%u.%u.%u.%u", xip[3], xip[2], xip[1], xip[0] );
+	return string;
+}
+
+static char * _port_to_string( ubyte2 port, char * string, size_t string_size ) {
+	snprintf( string, string_size, "%u", port );
+	return string;
+}
+
+static void _string_to_mac( char * string, ubyte mac[6] ) {
+	unsigned int mac_int[6];
+	sscanf( string, "%02x:%02x:%02x:%02x:%02x:%02x", mac_int, mac_int+1, mac_int+2, mac_int+3, mac_int+4, mac_int+5 );
+	int i;
+	for (i = 0; i < 6; i++) {
+		mac[i] = (ubyte)mac_int[i];
 	}
+}
 
-	sscanf(ip_str, "%u.%u.%u.%u", ip_array, ip_array+1, ip_array+2, ip_array+3);
-	for (int i=0; i<4; i++) {
-		ts_platform_assert((ip_array[i] <= 255) && "Wrong ip format");
-	}
-	ip = (ip_array[0] << 24);
-	ip = (ip | (ip_array[1] << 16));
-	ip = (ip | (ip_array[2] << 8));
-	ip = (ip | ip_array[3]);
-
+static ubyte4 _string_to_ip( char * string ) {
+	ubyte4 ip;
+	unsigned int xip[4];
+	sscanf( string, "%u.%u.%u.%u", xip, xip+1, xip+2, xip+3 );
+	ip = ((ubyte)xip[0])<<24;
+	ip = ip | ((ubyte)xip[1])<<16;
+	ip = ip | ((ubyte)xip[2])<<8;
+	ip = ip | ((ubyte)xip[3]);
 	return ip;
 }
 
-static void _ip_hl_to_str(unsigned int ip, char *ip_str) {
-
-	unsigned char ip_array[4];
-	memset(ip_array, 0, 4);
-
-	ip_array[0] = (ip_array[0] | (ip >> 24));
-	ip_array[1] = (ip_array[1] | (ip >> 16));
-	ip_array[2] = (ip_array[2] | (ip >> 8));
-	ip_array[3] = (ip_array[3] | ip);
-	sprintf(ip_str, "%u.%u.%u.%u", ip_array[0], ip_array[1], ip_array[2], ip_array[3]);
+static ubyte2 _string_to_port( char * string ) {
+	ubyte2 port;
+	unsigned int portint;
+	sscanf( string, "%u", &portint );
+	port = (ubyte2) portint;
+	return port;
 }
 
-/**
- * Convert a rule to a message (rule)
- * @param rule
- * @return
- */
-static TsMessageRef_t _convert_mf( struct mf_rule_link * link ) {
+static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry mf_rule ) {
 
-	//	unsigned int src_ip;
-	//	unsigned int dest_ip;
-	//	unsigned int src_port;
-	//	unsigned int dest_port;
-	//	int in_out;                 // IN->1, OUT->2
-	//	char src_netmask;
-	//	char dest_netmask;
-	//	char proto;                 // TCP->1, UDP->2, ALL->3
-	//	char action;                // LOG->0， BLOCK->1
+	TsMessageRef_t ts_rule;
+	ts_message_create( &ts_rule );
+	ts_message_set_int( ts_rule, "id", id );
+	ts_message_set_string( ts_rule, "sense", sense );
 
-	char xsource[16], xdestination[16];
-	_ip_hl_to_str( link->rule.src_ip, xsource );
-	_ip_hl_to_str( link->rule.dest_ip, xdestination );
+	// convert match-flags
+	char * match = "unknown";
+	if( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_PROTOCOL ) {
+		match = "protocol";
+	} else if( ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_PORT ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_MAC ) ) {
+		match = "source";
+	} else if( ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_PORT ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_MAC ) ) {
+		match = "destination";
+	}
+	ts_message_set_string( ts_rule, "match", match );
 
-	TsMessageRef_t xrule, source, destination;
-	ts_message_create( &xrule );
-	ts_message_set_int( xrule, "id", link->id );
-	ts_message_set_string( xrule, "sense", link->rule.in_out == 1 ? "inbound" : "outbound" );
-	ts_message_set_string( xrule, "match", "all" );
-	ts_message_set_string( xrule, "action", link->rule.action == 1 ? "drop" : "accept" );
-	ts_message_set_string( xrule, "protocol", link->rule.proto == 1 ? "tcp" : "udp" );
-	ts_message_set_string( xrule, "interface", "eth0" );
+	// convert action setting
+	char * action = "drop";
+	if( mf_rule.action == MFIREWALL_ACTION_ACCEPT ) {
+		action = "accept";
+	}
+	ts_message_set_string( ts_rule, "action", action );
 
-	ts_message_create_message( xrule, "source", &source );
-	ts_message_set_string( source, "address", xsource );
-	ts_message_set_string( source, "netmask", "255.255.255.0" );
-	ts_message_set_int( source, "port", link->rule.src_port );
+	// convert protocol setting
+	// see wall/mfirewall.h for "magic" numbers, TCP(6), UDP(17) and ICMP(1)
+	char * protocol;
+	switch( mf_rule.protocol ) {
+	case 6:
+		protocol = "tcp";
+		break;
+	case 17:
+		protocol = "udp";
+		break;
+	case 1:
+		protocol = "icmp";
+		break;
+	default:
+		protocol = "unknown";
+		break;
+	}
+	ts_message_set_string( ts_rule, "protocol", protocol );
 
-	ts_message_create_message( xrule, "destination", &destination );
-	ts_message_set_string( destination, "address", xdestination );
-	ts_message_set_string( destination, "netmask", "255.255.255.0" );
-	ts_message_set_int( destination, "port", link->rule.dest_port );
+	// convert network interface name
+	char * interface;
+	switch( mf_rule.networkInterfaces ) {
+	case MFIREWALL_RULE_IF_LAN:
+		interface = "lan";
+		break;
+	case MFIREWALL_RULE_IF_WAN:
+		interface = "wan";
+		break;
+	case MFIREWALL_RULE_IF_WIFI:
+		interface = "wifi";
+		break;
+	default:
+		interface = "unknown";
+		break;
+	}
+	ts_message_set_string( ts_rule, "interface", interface );
 
-	return xrule;
+	// convert source
+	if( ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_PORT ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_MAC ) ) {
+		TsMessageRef_t source;
+		char string[ 24 ];
+		ts_message_create_message( ts_rule, "source", &source );
+		ts_message_set_string( source, "mac", _mac_to_string( mf_rule.sourceMacAddress, string, 24 ) );
+		ts_message_set_string( source, "address", _ip_to_string( mf_rule.ipSource.address, string, 24 ) );
+		ts_message_set_string( source, "netmask", _ip_to_string( mf_rule.ipSource.netmask, string, 24 ) );
+		ts_message_set_string( source, "port", _port_to_string( mf_rule.ipSource.port, string, 24 ) );
+	}
+
+	// convert destination
+	if( ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_IP_ADDR ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_PORT ) ||
+			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_MAC ) ) {
+		TsMessageRef_t destination;
+		char string[ 24 ];
+		ts_message_create_message( ts_rule, "destination", &destination );
+		ts_message_set_string( destination, "mac", _mac_to_string( mf_rule.sourceMacAddress, string, 24 ) );
+		ts_message_set_string( destination, "address", _ip_to_string( mf_rule.ipSource.address, string, 24 ) );
+		ts_message_set_string( destination, "netmask", _ip_to_string( mf_rule.ipSource.netmask, string, 24 ) );
+		ts_message_set_string( destination, "port", _port_to_string( mf_rule.ipSource.port, string, 24 ) );
+	}
+
+	return ts_rule;
 }
 
-/**
- * Convert a message (rule) to a kernel rule
- * @param rule
- * @return
- */
-static struct mf_rule_link * _convert_ts( TsMessageRef_t rule ) {
+static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 
-	ts_platform_assert( rule != NULL );
+	MFIREWALL_RuleEntry mf_rule;
+	memset( &mf_rule, sizeof( MFIREWALL_RuleEntry ), 0x00 );
 
-	//	unsigned int src_ip;
-	//	unsigned int dest_ip;
-	//	unsigned int src_port;
-	//	unsigned int dest_port;
-	//	int in_out;                 // IN->1, OUT->2
-	//	char src_netmask;
-	//	char dest_netmask;
-	//	char proto;                 // TCP->1, UDP->2, ALL->3
-	//	char action;                // LOG->0， BLOCK->1
+	ubyte matchFlags = 0x00;
+	char * string;
 
-	char * temp;
-	int port;
-	struct mf_rule_link * link = _get_unassigned_rule();
-	if( link != NULL ) {
-
-		ts_message_get_int( rule, "id", &(link->id) );
-		ts_message_get_string( rule, "sense", &temp );
-		if( temp != NULL ) link->rule.in_out = strcmp( temp, "inbound" ) == 0 ? 1 : 2;
-		ts_message_get_string( rule, "action", &temp );
-		if( temp != NULL ) link->rule.action = (char)( strcmp( temp, "drop" ) == 0 ? 1 : 0 );
-		ts_message_get_string( rule, "protocol", &temp);
-		if( temp != NULL ) link->rule.proto = (char)( strcmp( temp, "tcp" ) == 0 ? 1 : 2 );
-
-		TsMessageRef_t filter;
-		if( ts_message_get_message( rule, "source", &filter ) == TsStatusOk ) {
-			link->rule.src_netmask = 24;
-			ts_message_get_string( filter, "address", &temp );
-			if( temp != NULL ) link->rule.src_ip = _ip_str_to_hl( temp );
-			ts_message_get_int( filter, "port", &port );
-			link->rule.src_port = (unsigned int)port;
+	// convert action
+	mf_rule.action = MFIREWALL_ACTION_ACCEPT;
+	if( ts_message_get_string( ts_rule, "action", &string ) == TsStatusOk ) {
+		if( strcmp( string, "drop" ) == 0 ) {
+			mf_rule.action = MFIREWALL_ACTION_DROP;
 		}
-		if( ts_message_get_message( rule, "destination", &filter ) == TsStatusOk ) {
-			link->rule.dest_netmask = 24;
-			ts_message_get_string( filter, "address", &temp );
-			if( temp != NULL ) link->rule.dest_ip = _ip_str_to_hl( temp );
-			ts_message_get_int( filter, "port", &port );
-			link->rule.dest_port = (unsigned int)port;
+	}
+
+	// convert protocol (and implicit match-flags)
+	// see wall/mfirewall.h for "magic" numbers, TCP(6), UDP(17) and ICMP(1)
+	mf_rule.protocol = 6;
+	if( ts_message_get_string( ts_rule, "protocol", &string ) == TsStatusOk ) {
+		matchFlags = matchFlags | MFIREWALL_RULE_MATCH_PROTOCOL;
+		if( strcmp( string, "udp" ) == 0 ) {
+			mf_rule.protocol = 17;
+		} else if( strcmp( string, "icmp" ) == 0 ) {
+			mf_rule.protocol = 1;
 		}
 	}
 
-	return link;
+	// convert network interface name
+	mf_rule.networkInterfaces = 0; // there's no match flag here--Mocana uses zero value
+	if( ts_message_get_string( ts_rule, "interface", &string ) == TsStatusOk ) {
+		if ( strcmp( string, "wan" ) == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_WAN;
+		} else if ( strcmp( string, "lan" )  == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_LAN;
+		} else if( strcmp( string, "wifi" ) == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_WIFI;
+		}
+	}
+
+	// convert source (and implicit match-flags)
+	TsMessageRef_t source;
+	ts_status_debug("about to call ts_message_has for source\n");
+	if( ts_message_has( ts_rule, "source", &source ) == TsStatusOk ) {
+		ts_status_debug("getting stuff from source\n");
+		if( ts_message_get_string( source, "mac", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_SRC_MAC;
+			_string_to_mac( string, mf_rule.sourceMacAddress );
+		}
+		if( ts_message_get_string( source, "address", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_SRC_IP_ADDR;
+			mf_rule.ipSource.address = _string_to_ip( string );
+			ts_status_debug("address = %s\n", string);
+		}
+		if( ts_message_get_string( source, "netmask", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_SRC_IP_ADDR;
+			mf_rule.ipSource.netmask = _string_to_ip( string );
+		}
+		if( ts_message_get_string( source, "port", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_SRC_PORT;
+			mf_rule.ipSource.port = _string_to_port( string );
+			ts_status_debug("port = %s\n", string);
+		}
+		int number;
+		if( ts_message_get_int( source, "port", &number ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_SRC_PORT;
+			mf_rule.ipSource.port = number;
+		}
+		float point;
+		if( ts_message_get_float( source, "port", &point ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_SRC_PORT;
+			mf_rule.ipSource.port = (int)point;
+		}
+	}
+
+	// convert destination (and implicit match-flags)
+	TsMessageRef_t destination;
+	ts_status_debug("about to call ts_message_has for destination\n");
+	if( ts_message_has( ts_rule, "destination", &destination ) == TsStatusOk ) {
+		ts_status_debug("getting stuff from destination\n");
+		if( ts_message_get_string( destination, "mac", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DST_MAC;
+			_string_to_mac( string, mf_rule.destinationMacAddress );
+		}
+		if( ts_message_get_string( destination, "address", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DST_IP_ADDR;
+			mf_rule.ipDestination.address = _string_to_ip( string );
+			ts_status_debug("address = %s\n", string);
+		}
+		if( ts_message_get_string( destination, "netmask", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DST_IP_ADDR;
+			mf_rule.ipDestination.netmask = _string_to_ip( string );
+			ts_status_debug("netmask = %s\n", string);
+		}
+		if( ts_message_get_string( destination, "port", &string ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DST_PORT;
+			mf_rule.ipDestination.port = _string_to_port( string );
+		}
+		int number;
+		if( ts_message_get_int( destination, "port", &number ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DST_PORT;
+			mf_rule.ipDestination.port = number;
+		}
+		float point;
+		if( ts_message_get_float( destination, "port", &point ) == TsStatusOk ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DST_PORT;
+			mf_rule.ipDestination.port = (int)point;
+		}
+	}
+
+	// set match flags
+	// this happens last, after we've determined what the user set
+	mf_rule.matchFlags = matchFlags;
+
+	return mf_rule;
 }
 
-/**
- * Copy the rules held by this firewall instance to the firewall
- * this includes default and additional rules
- * TODO - currently ignores domains
- * @param firewall
- * @return
- */
-static TsStatus_t _ts_handle_set_eval( TsFirewallRef_t firewall ) {
-
-	ts_status_trace( "_ts_handle_set_eval\n" );
-
-	// the user rules list has been modified before this call
-	// do not get all mf rules - i.e., _mf_read();
-
-	// TODO - not correct, but a quick way to sync the user and kernel, demo code only,...
-	// delete all mf rules
-	struct mf_rule_link * current = _mf_root;
-	while( current != NULL ) {
-
-		_mf_delete( 1 );
-		current = current->next;
-	}
-
-	// TODO - missing default rules
-	// fill mf rules from ts, if enabled
-	if( firewall->_enabled ) {
-
-		// set mf rules from ts
-		_mf_write();
-	}
-
+static TsStatus_t ts_set_log( TsLogConfigRef_t log ) {
+	ts_callback_context.log = log;
 	return TsStatusOk;
+}
+
+static TsMessageRef_t ts_stats() {
+	TsMessageRef_t stats;
+	ts_message_create( &stats );
+	MFIREWALL_Statistics statistics;
+	MFIREWALL_getStatistics( &statistics );
+
+	ubyte4 inbound = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].totalPackets -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].totalPackets;
+	ubyte4 inbound_tcp = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].tcpPacketsTotal -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].tcpPacketsTotal;
+	ubyte4 inbound_udp  = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].udpPacketsTotal -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].udpPacketsTotal;
+	ubyte4 inbound_icmp = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].icmpPacketsTotal -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].icmpPacketsTotal;
+	ubyte4 inbound_blocked = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].droppedPackets -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].droppedPackets;
+	ubyte4 inbound_blocked_tcp = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].tcpPacketsDropped -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].tcpPacketsDropped;
+	ubyte4 inbound_blocked_udp = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].udpPacketsDropped -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].udpPacketsDropped;
+	ubyte4 inbound_blocked_icmp = statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].icmpPacketsDropped -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_INBOUND ].icmpPacketsDropped;
+
+	ts_status_debug("inbound = %d\n", inbound);
+	ts_message_set_int( stats, "inbound", inbound );
+	ts_status_debug("inbound_tcp = %d\n", inbound_tcp);
+	ts_message_set_int( stats, "inbound_tcp", inbound_tcp );
+	ts_status_debug("inbound_udp = %d\n", inbound_udp);
+	ts_message_set_int( stats, "inbound_udp", inbound_udp );
+	ts_status_debug("inbound_icmp = %d\n", inbound_icmp);
+	ts_message_set_int( stats, "inbound_icmp", inbound_icmp );
+	ts_status_debug("inbound_blocked = %d\n", inbound_blocked);
+	ts_message_set_int( stats, "inbound_blocked", inbound_blocked );
+	ts_status_debug("inbound_blocked_tcp = %d\n", inbound_blocked_tcp);
+	ts_message_set_int( stats, "inbound_blocked_tcp", inbound_blocked_tcp );
+	ts_status_debug("inbound_blocked_udp = %d\n", inbound_blocked_udp);
+	ts_message_set_int( stats, "inbound_blocked_udp", inbound_blocked_udp );
+	ts_status_debug("inbound_blocked_icmp = %d\n", inbound_blocked_icmp);
+	ts_message_set_int( stats, "inbound_blocked_icmp", inbound_blocked_icmp );
+	ts_message_set_int( stats, "time", (int)ts_platform_time());
+
+	ubyte4 outbound = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].totalPackets -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].totalPackets;
+	ubyte4 outbound_tcp = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].tcpPacketsTotal -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].tcpPacketsTotal;
+	ubyte4 outbound_udp  = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].udpPacketsTotal -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].udpPacketsTotal;
+	ubyte4 outbound_icmp = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].icmpPacketsTotal -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].icmpPacketsTotal;
+	ubyte4 outbound_blocked = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].droppedPackets -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].droppedPackets;
+	ubyte4 outbound_blocked_tcp = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].tcpPacketsDropped -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].tcpPacketsDropped;
+	ubyte4 outbound_blocked_udp = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].udpPacketsDropped -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].udpPacketsDropped;
+	ubyte4 outbound_blocked_icmp = statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].icmpPacketsDropped -
+			last_reported_statistics.ruleList[ MFIREWALL_RULE_LIST_OUTBOUND ].icmpPacketsDropped;
+
+
+	ts_status_debug("outbound = %d\n", outbound);
+	ts_message_set_int( stats, "outbound", outbound );
+	ts_status_debug("outbound_tcp = %d\n", outbound_tcp);
+	ts_message_set_int( stats, "outbound_tcp", outbound_tcp );
+	ts_status_debug("outbound_udp = %d\n", outbound_udp);
+	ts_message_set_int( stats, "outbound_udp", outbound_udp );
+	ts_status_debug("outbound_icmp = %d\n", outbound_icmp);
+	ts_message_set_int( stats, "outbound_icmp", outbound_icmp );
+	ts_status_debug("outbound_blocked = %d\n", outbound_blocked);
+	ts_message_set_int( stats, "outbound_blocked", outbound_blocked );
+	ts_status_debug("outbound_blocked_tcp = %d\n", outbound_blocked_tcp);
+	ts_message_set_int( stats, "outbound_blocked_tcp", outbound_blocked_tcp );
+	ts_status_debug("outbound_blocked_udp = %d\n", outbound_blocked_udp);
+	ts_message_set_int( stats, "outbound_blocked_udp", outbound_blocked_udp );
+	ts_status_debug("outbound_blocked_icmp = %d\n", outbound_blocked_icmp);
+	ts_message_set_int( stats, "outbound_blocked_icmp", outbound_blocked_icmp );
+
+
+	memcpy(&last_reported_statistics, &statistics, sizeof(MFIREWALL_Statistics));	//+jv
+
+	return stats;
+}
+
+static TsStatus_t ts_set_suspended( TsFirewallRef_t firewall, bool suspended ) {
+	firewall->_suspended = suspended;
+	_mf_set_enabled(firewall);
+	return TsStatusOk;
+}
+
+static bool ts_suspended( TsFirewallRef_t firewall ) {
+	return firewall->_suspended;
+}
+
+static TsStatus_t _log( TsLogLevel_t level, char *message ) {
+	if ( ts_callback_context.log == NULL ) {
+		return TsStatusErrorPreconditionFailed;
+	}
+
+	return ts_log( ts_callback_context.log, level, TsCategoryFirewall, message );
 }
 
 /**
@@ -591,235 +1029,186 @@ static TsStatus_t _ts_handle_set_eval( TsFirewallRef_t firewall ) {
  * @param firewall
  * @return
  */
-static TsStatus_t _ts_handle_get_eval( TsFirewallRef_t firewall ) {
+static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t firewall ) {
 
 	ts_status_trace( "_ts_handle_get_eval\n" );
 
-	// get mf rules (note, this wipes out any local changes)
-	_mf_read();
+	// get firewall default policy
+	MFIREWALL_DefaultPolicy policy;
+	MFIREWALL_getDefaultPolicy( &policy );
+	char * dpi = policy.defaultAction[ MFIREWALL_RULE_LIST_INBOUND ] == MFIREWALL_ACTION_DROP ? "drop" : "accept";
+	char * dpo = policy.defaultAction[ MFIREWALL_RULE_LIST_OUTBOUND ] == MFIREWALL_ACTION_DROP ? "drop" : "accept";
+	ts_message_set_string( _policy, "default_policy_inbound", dpi );
+	ts_message_set_string( _policy, "default_policy_outbound", dpo );
 
-	// set ts rules from mf
-	// TODO - notice this wont filter the default rules, they will be repeated (which is correct?)
-	_mf_copy_ts( firewall );
+	// get firewall default rules and domains
+	// TODO - ignores default rules and domains for the moment
+
+	// get rules
+	_ts_refresh_array( &(firewall->_rules) );
+
+	MFIREWALL_RuleEntry * rules = _inbound;
+	size_t rules_size = sizeof( rules );
+	ubyte4 number_of_rules = TS_FIREWALL_MAX_RULES;
+	MSTATUS mstatus = MFIREWALL_getRules( MFIREWALL_RULE_LIST_INBOUND, rules, &rules_size, &number_of_rules );
+	if( mstatus == OK ) {
+
+		for( int index = 0; index < number_of_rules; index++ ) {
+			firewall->_rules->value._xfields[ index ] = _mf_to_ts_rule( "inbound", index, rules[ index ] );
+		}
+
+	} else {
+		ts_status_alarm( "_mf_handle_get_eval: failed to get rules, %d, ignoring,...\n", mstatus );
+	}
+
+	rules = _outbound;
+	rules_size = sizeof( rules );
+	number_of_rules = TS_FIREWALL_MAX_RULES;
+	mstatus = MFIREWALL_getRules( MFIREWALL_RULE_LIST_INBOUND, rules, &rules_size, &number_of_rules );
+	if( mstatus == OK ) {
+
+		for( int index = 0; index < number_of_rules; index++ ) {
+			firewall->_rules->value._xfields[ index ] = _mf_to_ts_rule( "outbound", index, rules[ index ] );
+		}
+
+	} else {
+		ts_status_alarm( "_mf_handle_get_eval: failed to get rules, %d, ignoring,...\n", mstatus );
+	}
+
+	// get domains
+	_ts_refresh_array( &(firewall->_domains) );
+
+	char * domains = MFIREWALL_getDomainList();
+	ubyte4 domains_size = MFIREWALL_getDomainListLength( domains );
+	int index = 0;
+	for( int i = 0; i < domains_size; i++ ) {
+
+		if( domains[ i ] == 0x00 ) {
+
+			ts_message_set_string_at( firewall->_domains, index, domains );
+			domains = &(domains[ i + 1 ]);
+			index = index + 1;
+			if( ( domains[ 0 ] == 0x00 ) || ( index >= TS_MESSAGE_MAX_BRANCHES ) ) {
+				break;
+			}
+		}
+	}
+
+	// get statistics
+	_statistics = ts_stats();
 
 	return TsStatusOk;
 }
 
-/**
- * Clear the user copy of the rule-set, any changes are lost
- */
-static void _mf_clear() {
+static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t rule, unsigned long* id ) {
 
-	ts_status_trace( "_mf_clear\n" );
-
-	// initialize static firewall rules
-	for( int i = 0; i < TS_FIREWALL_MAX_RULES; i++ ) {
-		_mf_rule_pool[ i ].assigned = false;
+	MFIREWALL_RuleEntry mf_rule = _ts_to_mf_rule( rule );
+	MFIREWALL_RuleListIndex rli = MFIREWALL_RULE_LIST_INBOUND;
+	char * sense;
+	if( ( ts_message_get_string( rule, "sense", &sense ) == TsStatusOk ) && ( strcmp( sense, "outbound" ) == 0 ) ) {
+		rli = MFIREWALL_RULE_LIST_OUTBOUND;
 	}
+	MFIREWALL_insertRule( rli, id, &mf_rule );
 
-	// remove root
-	_mf_root = NULL;
+	return TsStatusOk;
 }
 
-/**
- * Refresh the user copy of the rule-set from the kernel
- */
-static void _mf_read() {
+static TsStatus_t _mf_set_custom_domains( TsFirewallRef_t firewall ) {
 
-	ts_status_trace( "_mf_read\n" );
+	MFIREWALL_DomainList domains[ 1024 ];
+	size_t domains_size = sizeof( domains );
+	memset( domains, domains_size, 0x00 );
 
-	// clear local
-	_mf_clear();
+	int index = 0;
+	size_t size;
+	ts_message_get_size( firewall->_domains, &size );
+	for( int i = 0; i < (int)size; i++ ) {
 
-	// open firewall module
-	FILE * fd = fopen("/proc/miniFirewall", "r");
-	if( fd == NULL ) {
-		ts_status_alarm("_mf_read: fopen failed\n");
-		return;
+		TsMessageRef_t item;
+		ts_message_get_at( firewall->_domains, i, &item );
+		char * domain = item->value._xstring;
+
+		size_t domain_size = strlen( domain );
+		if( index + domain_size + 2 > domains_size ) {
+			ts_status_alarm( "_mf_set_custom_domains: could not fit all of the given domains\n" );
+			break;
+		}
+
+		snprintf( domains + index, domains_size - index, "%s", domain );
+		index = index + domain_size + 1;
 	}
 
-	// fill local
-	int index = 0;
-	struct mf_rule_link * prev = NULL;
-	struct mf_rule_link current;
-	while( fread( &(current.rule), sizeof(struct mf_rule_struct), 1, fd ) > 0 && index < TS_FIREWALL_MAX_RULES ) {
+	// this function performs a memcpy
+	MFIREWALL_setDomains( domains );
 
-		// update previous next pointer (including root)
-		if( prev != NULL ) {
-			ts_status_debug( "_mf_read: prev(%d)->next = %d\n", prev->id, index );
-			prev->next = &(_mf_rule_pool[ index ]);
+	return TsStatusOk;
+}
+
+static TsStatus_t _mf_set_default_rules( TsFirewallRef_t firewall ) {
+
+	// TODO - ignore default rules for now
+	return TsStatusOk;
+}
+
+static TsStatus_t _mf_set_default_domains( TsFirewallRef_t firewall ) {
+
+	// TODO - ignored default domains for now
+	return TsStatusOk;
+}
+
+static TsStatus_t _mf_set_default_policy( TsMessageRef_t policy ) {
+
+	MFIREWALL_DefaultPolicy default_policy;
+	char * dpi;
+	if( ts_message_get_string( policy, "default_policy_inbound", &dpi ) == TsStatusOk ) {
+		if( strcmp( dpi, "drop" ) == 0 ) {
+			default_policy.defaultAction[ MFIREWALL_RULE_LIST_INBOUND ] = MFIREWALL_ACTION_DROP;
 		} else {
-			ts_status_debug( "_mf_read: root = %d\n", index );
-			_mf_root = &(_mf_rule_pool[ index ]);
+			default_policy.defaultAction[ MFIREWALL_RULE_LIST_INBOUND ] = MFIREWALL_ACTION_ACCEPT;
 		}
-
-		// update current with the data held by the firewall
-		_mf_rule_pool[ index ].id = index;
-		_mf_rule_pool[ index ].assigned = true;
-		_mf_rule_pool[ index ].prev = prev;
-		_mf_rule_pool[ index ].next = NULL;
-		_mf_rule_pool[ index ].rule = current.rule;
-
-		// update next previous pointer
-		prev = &(_mf_rule_pool[ index ]);
-		index = index + 1;
 	}
-
-	// close and return
-	fclose( fd );
-}
-
-/**
- * Refresh the kernel copy of the rule-set from the user
- */
-static void _mf_write() {
-
-	ts_status_trace( "_mf_write\n" );
-	if( _mf_root == NULL ) {
-		ts_status_debug( "_mf_write: nothing to do, leaving,...\n" );
-		return;
-	}
-
-	// open firewall module
-	FILE * fd = fopen( "/proc/miniFirewall", "w" );
-	if( fd == NULL ) {
-		ts_status_alarm("_mf_write: fopen failed\n");
-		return;
-	}
-
-	// write local copy of all rules to the firewall
-	struct mf_rule_link * current = _mf_root;
-	while( current != NULL ) {
-
-		ts_status_debug( "_mf_write: writing, %d\n", current->id );
-
-		fwrite( &(current->rule), sizeof(struct mf_rule_struct), 1, fd );
-		fflush(fd);
-
-		current = current->next;
-	}
-
-	// close and return
-	fclose( fd );
-}
-
-/**
- * Delete a particular rule by id, after return the old indexes will be stale
- * @param id
- * The index of the particular rule to delete from the kernel
- */
-static void _mf_delete( int id ) {
-
-	ts_status_trace( "_mf_delete\n" );
-
-	// open the kernel firewall
-	FILE * fd = fopen("/proc/miniFirewall", "w");
-	if( fd == NULL ) {
-		ts_status_alarm("_mf_delete: fopen failed\n");
-		return;
-	}
-
-	// write the index to delete
-	fwrite( &id, sizeof(unsigned int), 1, fd );
-	fflush(fd);
-
-	// close and return
-	fclose( fd );
-}
-
-/**
- * Copy rules from the user copy to the firewall object
- * @param firewall
- */
-static void _mf_copy_ts( TsFirewallRef_t firewall ) {
-
-	ts_status_trace( "_mf_copy_ts\n" );
-
-	// create an empty array
-	TsMessageRef_t rules;
-	ts_message_create( &rules );
-	rules->type = TsTypeArray;
-
-	// prepare result
-	if( firewall->_rules != NULL ) {
-		ts_message_destroy( firewall->_rules );
-	}
-	firewall->_rules = rules;
-
-	// TODO - check; it should show default rules first, then regular,...
-	int index = 0;
-	struct mf_rule_link * current = _mf_root;
-	while( ( current != NULL ) && ( index < TS_MESSAGE_MAX_BRANCHES ) ) {
-
-		ts_status_debug( "_mf_copy_ts: index, %d\n", index);
-		firewall->_rules->value._xfields[ index ] = _convert_mf( current );
-		current = current->next;
-		index = index + 1;
-	}
-}
-
-/**
- * Insert a rule into the user space list
- * @param rule
- * @param index
- */
-static void _ts_insert( TsMessageRef_t rule, int index ) {
-
-	ts_status_trace( "_ts_insert\n" );
-
-	// copy rule to unassigned one in pool
-	struct mf_rule_link * xassign = _convert_ts( rule );
-	if( xassign == NULL ) {
-		ts_status_alarm( "_ts_insert: rule pool empty\n");
-		return;
-	}
-
-	// insert at top as index or linked-list determines
-	if( index == 0 || _mf_root == NULL ) {
-
-		ts_status_debug( "_ts_insert: insert at root\n" );
-
-		if( _mf_root != NULL ) {
-			xassign->next = _mf_root;
-			_mf_root->prev = xassign;
+	char * dpo;
+	if( ts_message_get_string( policy, "default_policy_inbound", &dpo ) == TsStatusOk ) {
+		if( strcmp( dpo, "drop" ) == 0 ) {
+			default_policy.defaultAction[ MFIREWALL_RULE_LIST_OUTBOUND ] = MFIREWALL_ACTION_DROP;
+		} else {
+			default_policy.defaultAction[ MFIREWALL_RULE_LIST_OUTBOUND ] = MFIREWALL_ACTION_ACCEPT;
 		}
-		xassign->prev = NULL;
-		_mf_root = xassign;
-
-		return;
 	}
-
-	// insert before as index or linked-list determines
-	struct mf_rule_link * current = _mf_root;
-	while( current != NULL) {
-
-		if( index > current->id ) {
-
-			if( current->prev == NULL ) {
-
-				ts_status_debug( "_ts_insert: insert at root according to id\n" );
-
-				xassign->next = current;
-				xassign->prev = NULL;
-
-				current->prev = xassign;
-				_mf_root = xassign;
-				return;
-
-			} else {
-
-				ts_status_debug( "_ts_insert: insert at id\n" );
-
-				xassign->next = current;
-				xassign->prev = current->prev;
-
-				current->prev->next = xassign;
-				current->prev = xassign;
-				return;
-			}
-		}
-		current = current->next;
-	}
+	MFIREWALL_setDefaultPolicy( &default_policy );
+	return TsStatusOk;
 }
 
-#endif // TS_FIREWALL_CUSTOM
+static TsStatus_t _mf_set_enabled( TsFirewallRef_t firewall ) {
+
+	// The underlying enabled state depends on both the enabled flag (set through firewall's handler)
+	// and the suspended flag (set through the ODS suspension object's handler).
+	// So we will call this whenever either of them changes.
+
+	bool mf_enabled = (firewall->_enabled && !(firewall->_suspended));
+	if( mf_enabled && !MFIREWALL_isEnabled() ) {
+		MSTATUS mstatus = MFIREWALL_enable();
+		if( mstatus != OK ) {
+			ts_status_info( "_mf_set_enabled: failed to enable, %d\n", mstatus );
+		}
+	} else if( !mf_enabled && MFIREWALL_isEnabled() ) {
+		MSTATUS mstatus = MFIREWALL_disable();
+		if( mstatus != OK ) {
+			ts_status_info( "_mf_set_enabled: failed to disable, %d\n", mstatus );
+		}
+	}
+	return TsStatusOk;
+}
+
+static TsStatus_t _mf_delete( char * sense, int id ) {
+
+	MFIREWALL_RuleListIndex rli = MFIREWALL_RULE_LIST_INBOUND;
+	if( strcmp( sense, "outbound" ) == 0 ) {
+		rli = MFIREWALL_RULE_LIST_OUTBOUND;
+	}
+	MFIREWALL_deleteRule( rli, id );
+
+	return TsStatusOk;
+}
+
+#endif

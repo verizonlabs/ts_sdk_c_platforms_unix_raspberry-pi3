@@ -13,4 +13,5 @@ target_include_directories( ts_sdk_platforms PRIVATE
     ${CMAKE_SOURCE_DIR}/sdk_dependencies/tinycbor/src
     ${CMAKE_SOURCE_DIR}/sdk_dependencies/mbedtls/include
     ${CMAKE_SOURCE_DIR}/sdk_dependencies/paho.mqtt.embedded-c/MQTTPacket/src
-    ${CMAKE_SOURCE_DIR}/sdk_dependencies/paho.mqtt.embedded-c/MQTTClient-C/src )
+    ${CMAKE_SOURCE_DIR}/sdk_dependencies/paho.mqtt.embedded-c/MQTTClient-C/src
+    ${CMAKE_SOURCE_DIR}/sdk_dependencies/mocana/src )
