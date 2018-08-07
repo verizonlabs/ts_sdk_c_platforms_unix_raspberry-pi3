@@ -1,5 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
-#if !defined(X_DO_NOT_COMPILE_YET)
+#if defined(TS_FIREWALL_CUSTOM)
 #include <stdio.h>
 #include <string.h>
 #include "wall/mfw_internal.h"
@@ -1211,4 +1211,4 @@ static TsStatus_t _mf_delete( char * sense, int id ) {
 	return TsStatusOk;
 }
 
-#endif
+#endif // TS_FIREWALL_CUSTOM
