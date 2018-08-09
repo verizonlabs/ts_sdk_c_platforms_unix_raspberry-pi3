@@ -111,7 +111,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 		return TsStatusErrorInternalServerError;
 	}
 
-	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
+	//MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 	ts_callback_context.alert_callback = alert_callback;
 
 	// initialize firewall object
@@ -1078,8 +1078,8 @@ static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t firewall ) {
 	// get domains
 	_ts_refresh_array( &(firewall->_domains) );
 
-	char * domains = MFIREWALL_getDomainList();
-	ubyte4 domains_size = MFIREWALL_getDomainListLength( domains );
+	char * domains = NULL; // MFIREWALL_getDomainList();
+	ubyte4 domains_size = 0; // MFIREWALL_getDomainListLength( domains );
 	int index = 0;
 	for( int i = 0; i < domains_size; i++ ) {
 
