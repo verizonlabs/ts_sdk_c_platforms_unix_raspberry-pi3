@@ -361,6 +361,28 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 		firewall->_last_report_time = ts_platform_time();
 	}
 
+#ifdef TEST_CONFIG_WALL
+	// Generate a fake packet rejection
+
+	MFIREWALL_DecisionInfo info;
+	info.ruleListIndex = MFIREWALL_RULE_LIST_INBOUND;
+	info.action = MFIREWALL_ACTION_DROP;
+
+	M_IPV4_HEADER ipHeader;
+	ipHeader.protocol = M_IP_PROTOCOL_ICMP; // for simplicity (don't need the extra header info for tcp/udp)
+	ipHeader.sourceAddress = string_to_ip("128.0.0.1");
+	ipHeader.destinationAddress = string_to_ip("129.0.0.1");
+	info.pIpHeader = &ipHeader;
+
+	M_ETHERNET_HEADER ethernetHeader;
+	ethernetHeader.sourceAddress = string_to_mac("01:23:45:67:89:ab");
+	ethernetHeader.destinationAddress = string_to_mac("cd:ef:01:23:45:67");
+	info.pEthernetHeader = &ethernetHeader;
+
+	_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
+
+#endif
+
 	if (ts_callback_context.alert_in_progress && ts_callback_context.alert_to_send != NULL) {
 		ts_message_dump(ts_callback_context.alert_to_send);
 		ts_callback_context.alert_callback(ts_callback_context.alert_to_send, "ts.event.firewall.alert");
