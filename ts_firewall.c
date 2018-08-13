@@ -379,8 +379,8 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 	info.pIpHeader = &ipHeader;
 
 	M_ETHERNET_HEADER ethernetHeader;
-	ethernetHeader.sourceAddress = _string_to_mac("01:23:45:67:89:ab");
-	ethernetHeader.destinationAddress = _string_to_mac("cd:ef:01:23:45:67");
+	_string_to_mac("01:23:45:67:89:ab", ethernetHeader.sourceAddress);
+	_string_to_mac("cd:ef:01:23:45:67", ethernetHeader.destinationAddress);
 	info.pEthernetHeader = &ethernetHeader;
 
 	_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
