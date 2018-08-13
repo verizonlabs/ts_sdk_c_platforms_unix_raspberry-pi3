@@ -38,6 +38,10 @@ static TsStatus_t _ts_refresh_array( TsMessageRef_t * );
 static void _ts_make_rejection_alert( TsMessageRef_t *, TsMessageRef_t *, TsMessageRef_t *, int, char *, PMFIREWALL_DecisionInfo);
 static char * _ip_to_string( ubyte4, char *, size_t );
 static char * _mac_to_string( ubyte mac[6], char * string, size_t string_size );
+static ubyte4 _string_to_ip( char * string );
+static void _string_to_mac( char * string, ubyte mac[6] );
+
+
 static TsStatus_t _log( TsLogLevel_t level, char *message );
 
 #define FIREWALL_LOG(level, ...) {char log_string[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log(level, log_string);}
@@ -283,7 +287,7 @@ static void _ts_make_rejection_alert( TsMessageRef_t *alert, TsMessageRef_t *sou
 		break;
 	}
 	if (protocol != NULL) {
-		ts_message_set_string( fields, "protocol", protocol);
+		ts_message_set_string( fields, "protocol", (char *)protocol);
 	}
 
 	ts_message_set_string( *source, "address", _ip_to_string( mfw_ip_header->sourceAddress, tmp, 25) );
@@ -370,13 +374,13 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 
 	M_IPV4_HEADER ipHeader;
 	ipHeader.protocol = M_IP_PROTOCOL_ICMP; // for simplicity (don't need the extra header info for tcp/udp)
-	ipHeader.sourceAddress = string_to_ip("128.0.0.1");
-	ipHeader.destinationAddress = string_to_ip("129.0.0.1");
+	ipHeader.sourceAddress = _string_to_ip("128.0.0.1");
+	ipHeader.destinationAddress = _string_to_ip("129.0.0.1");
 	info.pIpHeader = &ipHeader;
 
 	M_ETHERNET_HEADER ethernetHeader;
-	ethernetHeader.sourceAddress = string_to_mac("01:23:45:67:89:ab");
-	ethernetHeader.destinationAddress = string_to_mac("cd:ef:01:23:45:67");
+	ethernetHeader.sourceAddress = _string_to_mac("01:23:45:67:89:ab");
+	ethernetHeader.destinationAddress = _string_to_mac("cd:ef:01:23:45:67");
 	info.pEthernetHeader = &ethernetHeader;
 
 	_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
