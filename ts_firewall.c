@@ -84,11 +84,11 @@ static TsCallbackContext_t ts_callback_context = {
 };
 
 static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo);
-#define TEST_CONFIG_WALL
 
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
+#define GENERATE_TEST_EVENTS
 
 /**
  * Allocate and initialize a new firewall object.
@@ -451,7 +451,7 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 		firewall->_last_report_time = ts_platform_time();
 	}
 
-#ifdef TEST_CONFIG_WALL
+#ifdef GENERATE_TEST_EVENTS
 	// Generate a fake packet rejection
 
 	MFIREWALL_DecisionInfo info;
@@ -471,7 +471,7 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 
 	_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
 
-#endif
+#endif /* GENERATE_TEST_EVENTS */
 
 	if (ts_callback_context.alert_in_progress && ts_callback_context.alert_to_send != NULL) {
 		ts_message_dump(ts_callback_context.alert_to_send);
