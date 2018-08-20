@@ -176,7 +176,6 @@ static TsStatus_t _ts_handle_get( TsMessageRef_t fields ) {
 	TsMessageRef_t contents;
 	if (ts_message_has(fields, "cert", &contents) == TsStatusOk) {
 		ts_status_debug("_ts_handle_get: get cert\n");
-		ts_message_set_string(fields, "cert", TS_SDK_CERT);
 	}
 	return TsStatusOk;
 }
