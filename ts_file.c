@@ -9,6 +9,15 @@
 #include <unistd.h>
 #include <stdint.h>
 
+// Linux header
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <limits.h>
+#include <fcntl.h>
+#include <errno.h>
+
+struct stat st = {0};
 
 #include "common/moptions.h"
 #include "common/mtypes.h"
@@ -19,13 +28,13 @@
 //#include "ts_platform.h"
 #include "ts_file.h"
 #include "ts_status.h"
-#include "bsp_api.h"
-#include "r_crypto_api.h"
-#include "fx_api.h"
+//#include "bsp_api.h"
+//#include "r_crypto_api.h"
+//#include "fx_api.h"
 #include "ts_platform.h"
 
 // The FileX media - QSPI device for TS
-extern FX_MEDIA g_fx_media0;
+//extern FX_MEDIA g_fx_media0;
 
 typedef struct fx_errors_description
 {
@@ -36,40 +45,61 @@ typedef struct fx_errors_description
 
 const     fx_error_codes fx_error_codes_array[] =
 {
+    // First column is native error code, 2nd column is TS error mapped to
     {0x00, TsStatusOk},
-    {0x01, TsStatusErrorBootError},
-    {0x02, TsStatusErrorMediaInvalid},
-    {0x03, TsStatusErrorFatReadError},
-    {0x04, TsStatusErrorNotFound},
+    //{0x01, TsStatusErrorBootError},
+    {EIO, TsStatusErrorMediaInvalid},
+    {EBADF, TsStatusErrorFatReadError},
+    {ENOENT , TsStatusErrorNotFound},
     {0x05, TsStatusErrorNotAFile},
-    {0x06, TsStatusErrorAccessError},
-    {0x07, TsStatusErrorNotOpen},
-    {0x08, TsStatusErrorFileCorrupt},
-    {0x09, TsStatusErrorEndOfFile },
-    {0x0A, TsStatusErrorNoMoreSpace},
-    {0x0B, TsStatusErrorAlreadyCreated},
-    {0x0C, TsStatusErrorInvalidName},
-    {0x0D, TsStatusErrorInvalidPath},
-    {0x0E, TsStatusErrorNotDirectory},
-    {0x0F, TsStatusErrorNoMoreEntries},
-    {0x10, TsStatusErrorDirNotEmpty},
-    {0x11, TsStatusErrorMediaNotOpened},
-    {0x18, TsStatusErrorPtrError},
-    {0x19, TsStatusErrorInvalidAttr},
-    {0x20, TsStatusErrorCallerError},
-    {0x21, TsStatusErrorBufferError},
-    {0x22, TsStatusErrorNotImplemented},
+    {EACCES, TsStatusErrorAccessError},
+    {EBADF, TsStatusErrorNotOpen},
+    {EDESTADDRREQ , TsStatusErrorFileCorrupt},
+    {EDQUOT , TsStatusErrorNoMoreSpace},
+    {EFBIG , TsStatusErrorNoMoreSpace},
+    {EOVERFLOW , TsStatusErrorNoMoreSpace},
+    {EDESTADDRREQ , TsStatusErrorNoMoreSpace},
+    {EEXIST , TsStatusErrorAlreadyCreated},
+    {EINVAL , TsStatusErrorInvalidName},
+    {ESPIPE , TsStatusErrorInvalidName},
+    {EFAULT , TsStatusErrorInvalidPath},
+    {ENOTDIR, TsStatusErrorNotDirectory},
+    {EPERM, TsStatusErrorNotDirectory},
+    {ENOSPC , TsStatusErrorNoMoreEntries},
+    {ENFILE, TsStatusErrorNoMoreEntries },
+    {EBUSY, TsStatusErrorDirNotEmpty},
+    {EPERM , TsStatusErrorDirNotEmpty},
+    {EACCES, TsStatusErrorDirNotEmpty},
+    {EEXIST , TsStatusErrorDirNotEmpty},
+    {EISDIR , TsStatusErrorDirNotEmpty},
+    {ENOTEMPTY, TsStatusErrorDirNotEmpty},
+    //{0x11, TsStatusErrorMediaNotOpened},
+    {ELOOP  , TsStatusErrorPtrError},
+    {EMLINK , TsStatusErrorPtrError},
+    {EFAULT , TsStatusErrorPtrError},
+    {ENOTDIR, TsStatusErrorInvalidAttr},
+    //{0x20, TsStatusErrorCallerError},
+    {ERANGE, TsStatusErrorBufferError},
+    {EFAULT, TsStatusErrorBufferError},
+    {ENAMETOOLONG, TsStatusErrorBufferError},
+    {EBADF, TsStatusErrorNotImplemented},
     {0x23, TsStatusErrorWriteProtect},
     {0x24, TsStatusErrorInvalidOption},
     {0x89, TsStatusErrorSectorInvalid},
-    {0x90, TsStatusErrorIo_Error},
-    {0x91, TsStatusErrorNotEnoughMemory},
-    {0x92, TsStatusErrorErrorFixed},
-    {0x93, TsStatusErrorErrorNotFixed},
-    {0x94, TsStatusErrorNotAvailable},
-    {0x95, TsStatusErrorInvalidChecksum},
-    {0x96, TsStatusErrorReadContinue},
-    {0x97, TsStatusErrorInvalidState},
+    {ENOTDIR, TsStatusErrorIo_Error},
+    {ENOMEM , TsStatusErrorNotEnoughMemory},
+    //{0x92, TsStatusErrorErrorFixed},
+    //{0x93, TsStatusErrorErrorNotFixed},
+    {ENOSR, TsStatusErrorNotAvailable},
+    //{0x95, TsStatusErrorInvalidChecksum},
+    {EROFS  , TsStatusErrorReadContinue},
+    {ETXTBSY, TsStatusErrorInvalidState},
+    {EWOULDBLOCK, TsStatusErrorInvalidState},
+    {EAGAIN , TsStatusErrorInvalidState},
+
+	// Keep this flag last
+    {0xFFFF, 0xFF},
+
 };
 
 static void             ts_initialize();
@@ -112,18 +142,18 @@ static void ts_initialize (TsFileRef_t obj)
 {
     // FileX is brought up in the qpi int.
 	// If we want to init FileX time, etc, do it here
-
+    // For OSes like Linux nothing needs to be done.
 
 }
 
-static TsStatus_t ts_map_error(uint32_t fileXerror)
+static TsStatus_t ts_map_error(uint32_t osError)
 {
 	TsStatus_t ret = TsStatusError ;
 	uint16_t index =0;
 
-	while (fx_error_codes_array[index].error_code != 0X97)
+	while (fx_error_codes_array[index].error_code != 0XFFFF)
 	{
-		if (fx_error_codes_array[index].error_code == fileXerror)
+		if (fx_error_codes_array[index].error_code == osError)
 		{
 			ret = fx_error_codes_array[index].ts_error;
 			break;
@@ -144,13 +174,18 @@ static TsStatus_t 		ts_directory_create (char * directory_name)
 {
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
+	struct stat st = {0};
 
-    status = fx_directory_create(&g_fx_media0, directory_name);
-    if(FX_SUCCESS != status)
-    {
-        ret = ts_map_error(status);
-    }
-    fx_media_flush(&g_fx_media0);
+	// Do nothing if it already exists
+	if (stat(directory_name, &st) == -1) {
+		// +read/write/search permissions for owner and group, and with read/search permissions for others.
+		status = mkdir(directory_name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
+		if(0 != status)
+		{
+			ret = ts_map_error(errno);
+		}
+	}
 	return ret;
 
 }
@@ -164,31 +199,32 @@ static TsStatus_t 		ts_directory_default_get(char ** returned_path)
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
 
-    status = fx_directory_default_get(&g_fx_media0, returned_path);
-    if(FX_SUCCESS != status)
-    {
-        ret = ts_map_error(status);
-    }
-    fx_media_flush(&g_fx_media0);
+	// User provides the buffer
+
+	if (getcwd(returned_path, strlen(*returned_path)) == NULL) {
+		ret = ts_map_error(status);
+	}
+
 	return ret;
 
 }
 
 
 /**
- * Set the current default directory ib the file system
+ * Set the current default directory in the file system
  */
-static TsStatus_t 		ts_directory_default_set (char * directory_name)
+static TsStatus_t 		ts_directory_default_set(char * directory_name)
 {
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
 
-    status = fx_directory_default_set(&g_fx_media0, directory_name);
-    if(FX_SUCCESS != status)
-    {
-        ret = ts_map_error(status);
-    }
-    fx_media_flush(&g_fx_media0);
+	status = chdir(directory_name);
+
+	if (0 != status)
+	{
+		ret = ts_map_error(errno);
+	}
+
 	return ret;
 
 }
@@ -201,14 +237,14 @@ static TsStatus_t		ts_directory_delete(char * directory)
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
 
-    status = fx_directory_delete(&g_fx_media0, directory);
-    if(FX_SUCCESS != status)
-    {
-        ret = ts_map_error(status);
-    }
-    fx_media_flush(&g_fx_media0);
-	return ret;
+	status = rmdir(directory_name);
 
+	if (0 != status)
+	{
+		ret = ts_map_error(errno);
+	}
+
+	return ret;
 }
 
 /**
@@ -219,12 +255,11 @@ static TsStatus_t		ts_close(ts_file_handle* handle)
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
 
-    status = fx_file_close((FX_FILE *)handle);
-    if(FX_SUCCESS != status)
+    status = close(handle->???);  // This should be the linux fd as an in
+    if(0 != status)
     {
         ret = ts_map_error(status);
     }
-    fx_media_flush(&g_fx_media0);
 	return ret;
 
 }
@@ -236,12 +271,13 @@ static TsStatus_t		ts_delete(char* file_name)
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
 
-    status = fx_file_delete(&g_fx_media0, file_name);
-    if(FX_SUCCESS != status)
-    {
-        ret = ts_map_error(status);
-    }
-    fx_media_flush(&g_fx_media0);
+	status = unlink(file_name);
+
+	if (0 != status)
+	{
+		ret = ts_map_error(errno);
+	}
+
 	return ret;
 
 }
@@ -254,32 +290,45 @@ static TsStatus_t		ts_create(char* file_name)
 	TsStatus_t ret = TsStatusOk;
 	UINT status;
 
-    status = fx_file_create(&g_fx_media0, file_name);
-    if(FX_SUCCESS != status)
-    {
-        ret = ts_map_error(status);
-    }
-    fx_media_flush(&g_fx_media0);
+	int fd;
+
+	// Open the file and close it if it was OK
+	fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
+	if (fd != -1) {
+	    // use file descriptor
+	    close(fd);
+	}
+	else
+	{
+		ret = ts_map_error(errno);
+	}
+
 	return ret;
+
 
 }
 /**
  * Open a file on the file system
  */
- static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_type)
- {
- 	TsStatus_t ret = TsStatusOk;
- 	UINT status;
+static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_type)
+{
 
- 	 status = fx_file_open(&g_fx_media0, (FX_FILE *)handle, file, open_type);
-     if(FX_SUCCESS != status)
-     {
-         ret = ts_map_error(status);
-     }
-     fx_media_flush(&g_fx_media0);
- 	return ret;
+	int fd;
 
- }
+	// Open the file and close it if it was OK
+	fd = open(file_name, open_type, S_IRUSR | S_IRGRP | S_IROTH);
+	if (fd != -1) {
+		// Save the nandle for the user
+		handle->data[0] = fd;
+	}
+	else
+	{
+		ret = ts_map_error(errno);
+	}
+
+	return ret;
+
+}
 
 
 /**
@@ -289,14 +338,20 @@ static TsStatus_t		ts_create(char* file_name)
  {
  	TsStatus_t ret = TsStatusOk;
  	UINT status;
+ 	int read_bytes;
 
-     status = fx_file_read((FX_FILE*)handle_ptr, buffer, size, act_size);
+ 	// Read into supplied buffer
+     status = read((int)handle_ptr->data[0], buffer, size);
 
-     if(FX_SUCCESS != status)
+     if(-1 != status)
      {
-         ret = ts_map_error(status);
+    	 // Return bytes read
+         *act_size = status;
      }
-     fx_media_flush(&g_fx_media0);
+ 	else
+ 	{
+ 		ret = ts_map_error(errno);
+ 	}
  	return ret;
 
  }
@@ -308,13 +363,13 @@ static TsStatus_t		ts_create(char* file_name)
  	TsStatus_t ret = TsStatusOk;
  	UINT status;
 
- 	status = fx_file_seek((FX_FILE*)handle_ptr, offset);
+ 	status = lseek((int)handle_ptr->data[0], offset, SEEK_SET);
 
-     if(FX_SUCCESS != status)
+     if(-1 == status)
      {
          ret = ts_map_error(status);
      }
-     fx_media_flush(&g_fx_media0);
+
  	return ret;
 
  }
@@ -326,13 +381,12 @@ static TsStatus_t		ts_create(char* file_name)
  	TsStatus_t ret = TsStatusOk;
  	UINT status;
 
-     status = fx_file_write((FX_FILE*)handle_ptr, buffer, size);
+     status = write((int)handle_ptr->data[0], buffer, size);
 
-     if(FX_SUCCESS != status)
+     if(-1 == status)
      {
          ret = ts_map_error(status);
      }
-     fx_media_flush(&g_fx_media0);
  	return ret;
 
  }
