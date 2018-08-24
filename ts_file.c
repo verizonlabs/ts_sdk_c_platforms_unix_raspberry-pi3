@@ -237,7 +237,7 @@ static TsStatus_t		ts_directory_delete(char * directory)
 	TsStatus_t ret = TsStatusOk;
 	uint32_t status;
 
-	status = rmdir(directory_name);
+	status = rmdir(directory);
 
 	if (0 != status)
 	{
@@ -255,7 +255,7 @@ static TsStatus_t		ts_close(ts_file_handle* handle)
 	TsStatus_t ret = TsStatusOk;
 	uint32_t status;
 
-    status = close(handle->???);  // This should be the linux fd as an in
+    status = close(handle->data[0]);  // This should be the linux fd as an in
     if(0 != status)
     {
         ret = ts_map_error(status);
@@ -312,11 +312,11 @@ static TsStatus_t		ts_create(char* file_name)
  */
 static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_type)
 {
-
+	TsStatus_t ret = TsStatusOk;
 	int fd;
 
 	// Open the file and close it if it was OK
-	fd = open(file_name, open_type, S_IRUSR | S_IRGRP | S_IROTH);
+	fd = open(file, open_type, S_IRUSR | S_IRGRP | S_IROTH);
 	if (fd != -1) {
 		// Save the nandle for the user
 		handle->data[0] = fd;
@@ -358,7 +358,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 /**
  * Seek to a position in a file
  */
- static TsStatus_t		ts_seek(ts_file_handle *handle_ptr,  unsigned long offset)
+ static TsStatus_t		ts_seek(ts_file_handle *handle_ptr,  uint32_t offset)
  {
  	TsStatus_t ret = TsStatusOk;
  	uint32_t status;
