@@ -289,7 +289,7 @@ static TsStatus_t		ts_create(char* file_name)
 	int fd;
 
 	// Open the file and close it if it was OK
-	fd = open(file_name, O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH);
+	fd = open(file_name, O_RDWR | O_CREAT, S_IRWXG | S_IRGRP | S_IROTH);
 	if (fd != -1) {
 	    // use file descriptor
 	    close(fd);
