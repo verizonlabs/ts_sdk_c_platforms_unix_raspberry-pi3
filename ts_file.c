@@ -38,7 +38,7 @@ struct stat st = {0};
 
 typedef struct fx_errors_description
 {
-    UINT error_code;
+    uint32_t error_code;
     TsStatus_t ts_error;
 
 }fx_error_codes;
@@ -173,7 +173,7 @@ static TsStatus_t ts_map_error(uint32_t osError)
 static TsStatus_t 		ts_directory_create (char * directory_name)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 	struct stat st = {0};
 
 	// Do nothing if it already exists
@@ -197,7 +197,7 @@ static TsStatus_t 		ts_directory_create (char * directory_name)
 static TsStatus_t 		ts_directory_default_get(char ** returned_path)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 
 	// User provides the buffer
 
@@ -216,7 +216,7 @@ static TsStatus_t 		ts_directory_default_get(char ** returned_path)
 static TsStatus_t 		ts_directory_default_set(char * directory_name)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 
 	status = chdir(directory_name);
 
@@ -235,7 +235,7 @@ static TsStatus_t 		ts_directory_default_set(char * directory_name)
 static TsStatus_t		ts_directory_delete(char * directory)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 
 	status = rmdir(directory_name);
 
@@ -253,7 +253,7 @@ static TsStatus_t		ts_directory_delete(char * directory)
 static TsStatus_t		ts_close(ts_file_handle* handle)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 
     status = close(handle->???);  // This should be the linux fd as an in
     if(0 != status)
@@ -269,7 +269,7 @@ static TsStatus_t		ts_close(ts_file_handle* handle)
 static TsStatus_t		ts_delete(char* file_name)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 
 	status = unlink(file_name);
 
@@ -288,7 +288,7 @@ static TsStatus_t		ts_delete(char* file_name)
 static TsStatus_t		ts_create(char* file_name)
 {
 	TsStatus_t ret = TsStatusOk;
-	UINT status;
+	uint32_t status;
 
 	int fd;
 
@@ -337,7 +337,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
  static TsStatus_t		ts_read(ts_file_handle *handle_ptr, void* buffer, uint32_t size, uint32_t* act_size)
  {
  	TsStatus_t ret = TsStatusOk;
- 	UINT status;
+ 	uint32_t status;
  	int read_bytes;
 
  	// Read into supplied buffer
@@ -361,7 +361,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
  static TsStatus_t		ts_seek(ts_file_handle *handle_ptr,  unsigned long offset)
  {
  	TsStatus_t ret = TsStatusOk;
- 	UINT status;
+ 	uint32_t status;
 
  	status = lseek((int)handle_ptr->data[0], offset, SEEK_SET);
 
@@ -379,7 +379,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
  static TsStatus_t		ts_write(ts_file_handle *handle_ptr, void* buffer, uint32_t size)
  {
  	TsStatus_t ret = TsStatusOk;
- 	UINT status;
+ 	uint32_t status;
 
      status = write((int)handle_ptr->data[0], buffer, size);
 
