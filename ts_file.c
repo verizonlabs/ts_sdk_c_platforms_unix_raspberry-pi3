@@ -332,7 +332,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 
 
 /**
- * Read a file from the file system
+ * Read a file from the file system.
  */
  static TsStatus_t		ts_read(ts_file_handle *handle_ptr, void* buffer, uint32_t size, uint32_t* act_size)
  {
