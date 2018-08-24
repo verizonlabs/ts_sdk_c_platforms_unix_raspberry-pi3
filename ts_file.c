@@ -312,7 +312,10 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 	int fd;
 	// Open the file and close it if it was OK
 	if (open_type == TS_FILE_OPEN_FOR_READ)
+	{
+		fd = open(file, O_RDONLY , S_IRUSR | S_IRGRP | S_IROTH);
 	}
+	
 	else if (open_type == TS_FILE_OPEN_FOR_WRITE)
 	{
 		fd = open(file, O_WRONLY , S_IRUSR | S_IRGRP | S_IROTH);
