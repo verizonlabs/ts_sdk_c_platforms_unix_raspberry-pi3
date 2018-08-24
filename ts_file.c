@@ -310,8 +310,23 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 {
 	TsStatus_t ret = TsStatusOk;
 	int fd;
-
+#define TS_FILE_OPEN_FOR_READ                       0
+#define TS_FILE_OPEN_FOR_WRITE                      1
 	// Open the file and close it if it was OK
+	if (open_type == OPEN_FOR_READ)
+	{
+		fd = open(file, O_RDONLY, S_IRUSR | S_IRGRP | S_IROTH);
+	}
+	else if (open_type == OPEN_FOR_WRITE)
+	{
+		fd = open(file, O_WRONLY , S_IRUSR | S_IRGRP | S_IROTH);
+	}
+	else
+	{
+		ret = TsStatusErrorInvalidAttr;
+		goto exit;
+	}
+
 	fd = open(file, open_type, S_IRUSR | S_IRGRP | S_IROTH);
 	if (fd != -1) {
 		// Save the nandle for the user
@@ -321,7 +336,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 	{
 		ret = ts_map_error(errno);
 	}
-
+exit:
 	return ret;
 
 }
