@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <fcntl.h>
+#include <string.h>
 #include <errno.h>
 
 struct stat st = {0};
@@ -28,13 +29,8 @@ struct stat st = {0};
 //#include "ts_platform.h"
 #include "ts_file.h"
 #include "ts_status.h"
-//#include "bsp_api.h"
-//#include "r_crypto_api.h"
-//#include "fx_api.h"
 #include "ts_platform.h"
 
-// The FileX media - QSPI device for TS
-//extern FX_MEDIA g_fx_media0;
 
 typedef struct fx_errors_description
 {
@@ -129,8 +125,8 @@ static TsFileVtable_t ts_platform_file = {
     .read = ts_read,
     .seek = ts_seek,
     .write = ts_write,
-	.create = ts_create,
-	.assertion = ts_assertion
+    .create = ts_create,
+    .assertion = ts_assertion
 };
 
 const TsFileVtable_t * ts_file = &ts_platform_file;
@@ -201,7 +197,7 @@ static TsStatus_t 		ts_directory_default_get(char ** returned_path)
 
 	// User provides the buffer
 
-	if (getcwd(returned_path, strlen(*returned_path)) == NULL) {
+	if (getcwd(*returned_path, strlen(*returned_path)) == NULL) {
 		ret = ts_map_error(status);
 	}
 
