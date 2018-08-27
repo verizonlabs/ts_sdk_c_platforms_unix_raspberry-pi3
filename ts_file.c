@@ -110,6 +110,10 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 static TsStatus_t		ts_read(ts_file_handle *handle_ptr, void* buffer, uint32_t size, uint32_t* act_size);
 static TsStatus_t		ts_seek(ts_file_handle *handle_ptr,  uint32_t offset);
 static TsStatus_t		ts_write(ts_file_handle *handle_ptr, void* buffer, uint32_t size);
+static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size);
+static TsStatus_t		ts_size(ts_file_handle *handle_ptr,  uint32_t offset);
+static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, void* buffer);
+
 static void             ts_assertion(const char *msg, const char *file, int line);
 
 
@@ -125,6 +129,9 @@ static TsFileVtable_t ts_platform_file = {
     .read = ts_read,
     .seek = ts_seek,
     .write = ts_write,
+    .readline = ts_read,
+    .size = ts_size,
+    .writeline = ts_writeline,
     .create = ts_create,
     .assertion = ts_assertion
 };
@@ -400,6 +407,67 @@ exit:
  	return ret;
 
  }
+
+
+ /**
+  * Read a file from the file system.
+  */
+  static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size)
+  {
+  	TsStatus_t ret = TsStatusOk;
+  	uint32_t status;
+  	int read_bytes;
+
+  	// Read into supplied buffer
+      status = read((int)handle_ptr->data[0], buffer, size);
+
+      if(-1 != status)
+      {
+     	 // Return bytes read
+          *act_size = status;
+      }
+  	else
+  	{
+  		ret = ts_map_error(errno);
+  	}
+  	return ret;
+
+  }
+ /**
+  * Returns the size of a file - must be opened
+  */
+  static TsStatus_t		ts_size(ts_file_handle *handle_ptr,  uint32_t* size)
+  {
+  	TsStatus_t ret = TsStatusOk;
+  	uint32_t status;
+
+  	status = lseek((int)handle_ptr->data[0], offset, SEEK_SET);
+
+      if(-1 == status)
+      {
+          ret = ts_map_error(status);
+      }
+
+  	return ret;
+
+  }
+ /**
+  * Write to a line to a file in the file system.
+  */
+  static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, void* buffer)
+  {
+  	TsStatus_t ret = TsStatusOk;
+  	uint32_t status;
+
+      status = write((int)handle_ptr->data[0], buffer, size);
+
+      if(-1 == status)
+      {
+          ret = ts_map_error(status);
+      }
+  	return ret;
+
+  }
 /**
  * Handle any assertion, i.e., this function doesnt perform the check, it simply performs the effect, e.g.,
  * display the given message and halt, etc.
