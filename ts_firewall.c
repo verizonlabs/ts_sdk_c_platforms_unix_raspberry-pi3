@@ -420,7 +420,11 @@ static TsStatus_t ts_destroy( TsFirewallRef_t firewall ) {
 	return TsStatusOk;
 }
 
-/**
+#ifdef GENERATE_TEST_EVENTS
+static int count = 0;
+#endif
+
+/*
  * Provide the given firewall processing time according to the given budget "recommendation".
  * This function is typically called from ts_service.
  *
@@ -455,22 +459,26 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 	// Generate a fake packet rejection, if the firewall is operating
 
 	if (firewall && firewall->_enabled && !(firewall->_suspended)) {
-		MFIREWALL_DecisionInfo info;
-		info.ruleListIndex = MFIREWALL_RULE_LIST_INBOUND;
-		info.action = MFIREWALL_ACTION_DROP;
+		count++;
+		if (count >= 5) {
+			count = 0;
+			MFIREWALL_DecisionInfo info;
+			info.ruleListIndex = MFIREWALL_RULE_LIST_INBOUND;
+			info.action = MFIREWALL_ACTION_DROP;
 
-		M_IPV4_HEADER ipHeader;
-		ipHeader.protocol = M_IP_PROTOCOL_ICMP; // for simplicity (don't need the extra header info for tcp/udp)
-		ipHeader.sourceAddress = _string_to_ip("128.0.0.1");
-		ipHeader.destinationAddress = _string_to_ip("129.0.0.1");
-		info.pIpHeader = &ipHeader;
+			M_IPV4_HEADER ipHeader;
+			ipHeader.protocol = M_IP_PROTOCOL_ICMP; // for simplicity (don't need the extra header info for tcp/udp)
+			ipHeader.sourceAddress = _string_to_ip("128.0.0.1");
+			ipHeader.destinationAddress = _string_to_ip("129.0.0.1");
+			info.pIpHeader = &ipHeader;
 
-		M_ETHERNET_HEADER ethernetHeader;
-		_string_to_mac("01:23:45:67:89:ab", ethernetHeader.sourceAddress);
-		_string_to_mac("cd:ef:01:23:45:67", ethernetHeader.destinationAddress);
-		info.pEthernetHeader = &ethernetHeader;
+			M_ETHERNET_HEADER ethernetHeader;
+			_string_to_mac("01:23:45:67:89:ab", ethernetHeader.sourceAddress);
+			_string_to_mac("cd:ef:01:23:45:67", ethernetHeader.destinationAddress);
+			info.pEthernetHeader = &ethernetHeader;
 
-		_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
+			_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
+		}
 	}
 
 #endif /* GENERATE_TEST_EVENTS */
