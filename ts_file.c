@@ -289,7 +289,7 @@ static TsStatus_t		ts_create(char* file_name)
 	int fd;
 
 	// Open the file and close it if it was OK
-	fd = open(file_name, O_RDWR | O_CREAT, S_IRWXG | S_IRGRP | S_IROTH);
+	fd = open(file_name, O_RDWR | O_CREAT, S_IRWXU | S_IRGRP | S_IROTH);
 	if (fd != -1) {
 	    // use file descriptor
 	    close(fd);
@@ -318,7 +318,7 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 	
 	else if (open_type == TS_FILE_OPEN_FOR_WRITE)
 	{
-		fd = open(file, O_WRONLY , S_IRUSR | S_IRGRP | S_IROTH);
+		fd = open(file, O_WRONLY|O_CREAT , S_IRWXU | S_IRGRP | S_IROTH);
 	}
 	else
 	{
@@ -326,7 +326,6 @@ static TsStatus_t		ts_open(ts_file_handle *handle,  char *file, uint32_t open_ty
 		goto exit;
 	}
 
-	fd = open(file, open_type, S_IRUSR | S_IRGRP | S_IROTH);
 	if (fd != -1) {
 		// Save the nandle for the user
 		handle->data[0] = fd;
