@@ -412,27 +412,46 @@ exit:
  /**
   * Read a file from the file system.
   */
-  static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size)
-  {
-  	TsStatus_t ret = TsStatusOk;
-  	uint32_t status;
-  	int read_bytes;
+ static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size)
+ {
+	 TsStatus_t ret = TsStatusOk;
+	 uint32_t status;
+	 int read_bytes;
+	 char c;
+	 int pos = 0;
+	 FILE* file = (int)handle_ptr->data[0];
 
-  	// Read into supplied buffer
-      status = read((int)handle_ptr->data[0], buffer, size);
+	 if (file) {
+		 do {
+			 c = getc(file);
+			 if ((pos<size) && c!=EOF) {
+				 buffer[pos++]=c;
+			 }
 
-      if(-1 != status)
-      {
-     	 // Return bytes read
-          *act_size = status;
-      }
-  	else
-  	{
-  		ret = ts_map_error(errno);
-  	}
-  	return ret;
+		 } while ((c != '\n') && c!=EOF);
+	 }
 
-  }
+
+#if 0
+	 // cases 0 length - return
+	 // 1 just a null
+	 // other a char* and a \n
+
+#endif
+
+
+	 if(-1 != status)
+	 {
+		 // Return bytes read
+		 *act_size = status;
+	 }
+	 else
+	 {
+		 ret = ts_map_error(errno);
+	 }
+	 return ret;
+
+ }
  /**
   * Returns the size of a file - must be opened
   */
@@ -441,12 +460,18 @@ exit:
   	TsStatus_t ret = TsStatusOk;
   	uint32_t status;
 
-  	status = lseek((int)handle_ptr->data[0], offset, SEEK_SET);
+  	status = fseek((int)handle_ptr->data[0], 0L, SEEK_END);
 
       if(-1 == status)
       {
           ret = ts_map_error(status);
       }
+      else
+      {
+    	  *size=ftell((int)handle_ptr->data[0]);
+    	  rewind((int)handle_ptr->data[0]);
+      }
+
 
   	return ret;
 
