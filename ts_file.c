@@ -111,7 +111,7 @@ static TsStatus_t		ts_read(ts_file_handle *handle_ptr, void* buffer, uint32_t si
 static TsStatus_t		ts_seek(ts_file_handle *handle_ptr,  uint32_t offset);
 static TsStatus_t		ts_write(ts_file_handle *handle_ptr, void* buffer, uint32_t size);
 static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size);
-static TsStatus_t		ts_size(ts_file_handle *handle_ptr,  uint32_t offset);
+static TsStatus_t		ts_size(ts_file_handle *handle_ptr,  uint32_t* size);
 static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, void* buffer);
 
 static void             ts_assertion(const char *msg, const char *file, int line);
@@ -129,7 +129,7 @@ static TsFileVtable_t ts_platform_file = {
     .read = ts_read,
     .seek = ts_seek,
     .write = ts_write,
-    .readline = ts_read,
+    .readline = ts_readline,
     .size = ts_size,
     .writeline = ts_writeline,
     .create = ts_create,
@@ -411,51 +411,48 @@ exit:
  /**
   * Read a file from the file system.
   */
- static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size)
+ static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* vbuffer, uint32_t size)
  {
 	 TsStatus_t ret = TsStatusOk;
 	 uint32_t status;
 	 int read_bytes;
 	 char c;
 	 int pos = 0;
-	 FILE* file = (int)handle_ptr->data[0];
+	 int file = (int)handle_ptr->data[0];
+         char* buffer = (char*)vbuffer;
 
 	 if (file && size>1 ) {
 		 // Read each byte, looking for the newline or EOF. Newline DOES go into return string
 		 // Don't go pass the end of the users buffer length, and leave space for the NULL at the end
 		 do {
-			 c = getc(file);
-			 if ((pos<(size-1)) && c!=EOF) {
+			 status = read(file,&c,1);
+                         if(status<0)
+                         {
+                             // EOF or error 
+                             ret = ts_map_error(status);
+                             goto error;
+                         }
+                         else if(status==0) {
+                            // EOF
+                            ret = TsStatusErrorNoMoreEntries;
+                            goto error;
+                         }
+			 if ((pos < (size-1)) ) {
 				 buffer[pos++]=c;
 			 }
 
-		 } while ((c != '\n') && !feof(file));
+		 } while ((c != '\n') && (status==1));
+                 // End of string for the returned line
 		 buffer[pos]='\0';
 	 }
 	 else
+         // Bad params
 	 {
 		 ret = TsStatusErrorNotOpen;
-		 goto error:
+		 goto error;
 	 }
 
 
-#if 0
-	 // cases 0 length - return
-	 // 1 just a null
-	 // other a char* and a \n
-
-#endif
-
-
-	 if(-1 != status)
-	 {
-		 // Return bytes read
-		 *act_size = status;
-	 }
-	 else
-	 {
-		 ret = ts_map_error(errno);
-	 }
 	 error:
 	 return ret;
 
@@ -467,8 +464,10 @@ exit:
   {
   	TsStatus_t ret = TsStatusOk;
   	uint32_t status;
+        uint32_t save_pos;
 
-  	status = fseek((int)handle_ptr->data[0], 0L, SEEK_END);
+  	save_pos = lseek((int)handle_ptr->data[0], 0L, SEEK_CUR);
+  	status = lseek((int)handle_ptr->data[0], 0L, SEEK_END);
 
       if(-1 == status)
       {
@@ -476,8 +475,9 @@ exit:
       }
       else
       {
-    	  *size=ftell((int)handle_ptr->data[0]);
-    	  rewind((int)handle_ptr->data[0]);
+    	  *size=status;                          
+          // Back to where we were
+  	  save_pos = lseek((int)handle_ptr->data[0], save_pos, SEEK_SET);
       }
 
 
@@ -492,6 +492,7 @@ exit:
   	TsStatus_t ret = TsStatusOk;
   	uint32_t status;
 
+#if 0
       status = write((int)handle_ptr->data[0], buffer, size);
 
       if(-1 == status)
@@ -499,7 +500,7 @@ exit:
           ret = ts_map_error(status);
       }
   	return ret;
-
+#endif
   }
 /**
  * Handle any assertion, i.e., this function doesnt perform the check, it simply performs the effect, e.g.,
