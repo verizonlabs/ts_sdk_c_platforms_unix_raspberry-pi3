@@ -421,14 +421,22 @@ exit:
 	 int pos = 0;
 	 FILE* file = (int)handle_ptr->data[0];
 
-	 if (file) {
+	 if (file && size>1 ) {
+		 // Read each byte, looking for the newline or EOF. Newline DOES go into return string
+		 // Don't go pass the end of the users buffer length, and leave space for the NULL at the end
 		 do {
 			 c = getc(file);
-			 if ((pos<size) && c!=EOF) {
+			 if ((pos<(size-1)) && c!=EOF) {
 				 buffer[pos++]=c;
 			 }
 
-		 } while ((c != '\n') && c!=EOF);
+		 } while ((c != '\n') && !feof(file));
+		 buffer[pos]='\0';
+	 }
+	 else
+	 {
+		 ret = TsStatusErrorNotOpen;
+		 goto error:
 	 }
 
 
@@ -449,6 +457,7 @@ exit:
 	 {
 		 ret = ts_map_error(errno);
 	 }
+	 error:
 	 return ret;
 
  }
