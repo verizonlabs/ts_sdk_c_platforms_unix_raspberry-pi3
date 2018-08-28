@@ -112,7 +112,7 @@ static TsStatus_t		ts_seek(ts_file_handle *handle_ptr,  uint32_t offset);
 static TsStatus_t		ts_write(ts_file_handle *handle_ptr, void* buffer, uint32_t size);
 static TsStatus_t		ts_readline(ts_file_handle *handle_ptr, void* buffer, uint32_t size);
 static TsStatus_t		ts_size(ts_file_handle *handle_ptr,  uint32_t* size);
-static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, void* buffer);
+static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, char* buffer);
 
 static void             ts_assertion(const char *msg, const char *file, int line);
 
@@ -437,6 +437,7 @@ exit:
                             ret = TsStatusErrorNoMoreEntries;
                             goto error;
                          }
+                         // Make sure it fits
 			 if ((pos < (size-1)) ) {
 				 buffer[pos++]=c;
 			 }
@@ -487,20 +488,21 @@ exit:
  /**
   * Write to a line to a file in the file system.
   */
-  static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, void* buffer)
+  static TsStatus_t		ts_writeline(ts_file_handle *handle_ptr, char* buffer)
   {
   	TsStatus_t ret = TsStatusOk;
   	uint32_t status;
+        char eol = '\n';
+        char* sbuffer = (char*) buffer;
 
-#if 0
-      status = write((int)handle_ptr->data[0], buffer, size);
+      status = write((int)handle_ptr->data[0], sbuffer, strlen(sbuffer));
+      //status = write((int)handle_ptr->data[0], &eol, 1);
 
       if(-1 == status)
       {
           ret = ts_map_error(status);
       }
   	return ret;
-#endif
   }
 /**
  * Handle any assertion, i.e., this function doesnt perform the check, it simply performs the effect, e.g.,
