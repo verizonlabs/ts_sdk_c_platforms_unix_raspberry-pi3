@@ -4,6 +4,8 @@
 #include "ts_platform.h"
 #include "ts_util.h"
 
+extern bool cert;
+
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
 static TsStatus_t _ts_handle_get( TsMessageRef_t fields );
 static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t fields );
@@ -222,6 +224,7 @@ TsStatus_t ts_certrenew_handle( TsMessageRef_t fields ) {
 		ts_status_debug("_ts_handle_certrenew: cert renew field ends\n");
 	}
 	ts_status_debug("_ts_handle_certrenew: completed processing\n");
+	cert = true;
 	return TsStatusOk;
 }
 
@@ -316,6 +319,7 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 			}
 		}
 	}
+	cert = true;
 	return TsStatusOk;
 }
 
