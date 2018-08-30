@@ -319,4 +319,98 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 	return TsStatusOk;
 }
 
+/**
+ * Save a scep configuration object to a file
 
+ */
+TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* filename)
+{
+
+}
+
+ /**
+  * Restore a scep configuration object from a file
+
+  */
+#define SCEP_CONFIG_REV "083018-1"
+ TsStatus_t ts_scepconfig_restore(TsScepConfigRef_t* pConfig, char* path, char* filename)
+  {
+	 	TsStatus_t iret = TsStatusOk;
+	 	ts_file_handle handle;
+	 	uint32_t actual_size, size;
+	 	uint8_t* addr;
+
+	 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+	 	iret = ts_file_directory_default_set(directory);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Open the specifid config file in the given directory
+	 	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+
+	   // Read each line in the config, storing the data, but first verify the format written is compatible with this
+	   // version of the code
+
+
+
+
+
+
+	 	ts_file_close(&handle);
+
+
+	 	error:
+	 	return iret;
+
+  }
+
+#if 0
+ // Loads a crypto object into memory from a files. Sizes the file and malloc needed memory
+ // Certificate storage and keys - base credentials
+
+ static TsStatus_t loadFileIntoRam(char* directory, char* file_name, uint8_t** buffer, uint32_t* loaded_size)
+ {
+   	TsStatus_t iret = TsStatusOk;
+ 	ts_file_handle handle;
+ 	uint32_t actual_size, size;
+ 	uint8_t* addr;
+
+ 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+ 	iret = ts_file_directory_default_set(directory);
+ 	if (TsStatusOk != iret)
+ 		goto error;
+
+ 	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
+ 	if (TsStatusOk != iret)
+ 		goto error;
+
+ 	iret = ts_file_size(&handle, &size);
+ 	if (TsStatusOk != iret)
+ 		goto error;
+
+ 	addr = ts_platform_malloc( size);
+ 	if (addr==0)
+ 		goto error;
+
+     *buffer = addr;
+ 	iret = ts_file_read(&handle,addr, size, &actual_size);
+ 	// Make sure we got the whole thing
+ 	if (TsStatusOk != iret || size!=actual_size) {
+ 		ts_platform_free(addr, size);
+ 		goto error;
+ 	}
+ 	// The actual size of the object.  Users generall need to know how big it is
+     *loaded_size = size;
+ 	ts_file_close(&handle);
+
+
+ 	error:
+ 	return iret;
+
+ }
+#endif
