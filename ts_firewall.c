@@ -159,7 +159,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "34.10.98.63");
+	ts_message_set_string(source, "address", "63.98.10.34");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_string(source, "port", "8883");
 	ts_message_set_message(whitelistMessage, "destination", source);
@@ -172,7 +172,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "34.10.98.63");
+	ts_message_set_string(source, "address", "63.98.10.34");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_string(source, "port", "8883");
 	ts_message_set_message(whitelistMessage, "source", source);
@@ -186,7 +186,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "206.1.168.192");
+	ts_message_set_string(source, "address", "192.168.1.206");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "source", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
@@ -197,7 +197,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "206.1.168.192");
+	ts_message_set_string(source, "address", "192.168.1.206");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "destination", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
