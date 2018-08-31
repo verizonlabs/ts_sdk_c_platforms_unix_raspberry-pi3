@@ -326,7 +326,143 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
  */
 TsStatus_t ts_scepconfig_save( TsScepConfigRef_t pConfig, char* path, char* filename)
 {
+ 	TsStatus_t iret = TsStatusOk;
+ 	ts_file_handle handle;
+ 	uint32_t actual_size, size;
+ 	uint8_t* addr;
+ 	char text_line[120];
 
+ 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+	 	iret = ts_file_directory_default_set(path);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Remove the old file and create a new one
+	 	iret = ts_file_delete(filename)
+	 	iret = ts_file_create(filename);
+	 	// Open the specifid config file in the given directory
+	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_WRITE);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Write the signature line at the beginning
+	 	ts_file_writeline(&handle,SCEP_CONFIG_REV"\n");
+
+	 	snprintf(text_line,"%d\n",pConfig->_enabled, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_generateNewPrivateKey, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_certExpiresAfter, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_certEnrollmentType, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_numDaysBeforeAutoRenew, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_encryptionAlgorithm, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_hashFunction, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_retries, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_retryDelayInSeconds, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_keySize, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_keyUsage, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_keyAlgorithm, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_keyAlgorithmStrength, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_caInstance, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_challengeType, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_challengeUsername, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_challengePassword, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_caCertFingerprint, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_certSubject, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%s\n",pConfig->_getCaCertUrl, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_getPkcsRequestUrl, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,"%d\n",pConfig->_getCertInitialUrl, sizeof(text_line);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+
+	 	error:
+		ts_file_close(&handle);
+		return iret;
 }
 
  /**
