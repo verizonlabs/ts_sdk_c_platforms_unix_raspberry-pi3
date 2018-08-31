@@ -340,7 +340,20 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	 	uint32_t actual_size, size;
 	 	uint8_t* addr;
 	 	char line[120];
-	 	char conv[100];
+	 	char conv[100];\
+	 	// These are all used to whold string in the passed struct ptr
+	 	static char bfr_encryptionAlgorithm[100];
+	 	static char bfr_hashFunction[16];
+	 	static char bfr_keyUsage[10];
+	 	static char bfr_keyAlgorithm[100];
+	 	static char bfr_keyAlgorithmStrength[10];
+	 	static char bfr_challengeUsername[20];
+	 	static char bfr_urlBuffer[100];
+	 	static char bfr_challengeUsername[20];
+		static char bfr_challengePassword[20];
+		static char bfr_caCertFingerprint[100];
+		static char bfr_certSubject[100];
+		static char bfr_getCaCertUrl[100];
 
 
 	 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
@@ -404,29 +417,16 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_encryptionAlgorithm!=0) {
-	        sscanf( text_line, "%s", pConfig->_encryptionAlgorithm);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_encryptionAlgorithm = &bfr__encryptionAlgorithm;
+	 	strncpy(bfr__encryptionAlgorithm, text_line,sizeof(bfr__encryptionAlgorithm));
 
 	 	// _hashFunction
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_hashFunction);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_hashFunction = &bfr_hashFunction;
+	 	strncpy(bfr_hashFunction, text_line,s izeof(bfr_hashFunction));
+
 
 	 	// _retries
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -450,43 +450,22 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_keyUsage);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_keyUsage= &bfr__keyUsage;
+	 	strncpy(bfr_eyUsage text_line,sizeof(bfr_keyUsage);
 
 	 	// _keyAlgorithm
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_keyAlgorithm);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_keyAlgorithm = &bfr_keyAlgorithm;
+	 	strncpy(bfr_keyAlgorithm, text_line,sizeof(bfr_keyAlgorithm));
 
 	 	// _keyAlgorithmStrength
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_keyAlgorithmStrength);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_keyAlgorithmStrength = &bfr_keyAlgorithmStrength;
+	 	strncpy(bfr_keyAlgorithmStrength, text_line,sizeof(bfr_keyAlgorithmStrength));
 
 	 	// _caInstance
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -504,77 +483,40 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_challengeUsername);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_challengeUsername = &bfr_challengeUsername;
+	 	strncpy(bfr_challengeUsername, text_line,sizeof(bfr_challengeUsername));
+
 
 	 	// _challengePassword
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_challengePassword);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_challengePassword = &bfr_challengePassword;
+	 	strncpy(bfr_challengePassword, text_line,sizeof(bfr_challengePassword));
+
 
 	 	// _caCertFingerprint
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_caCertFingerprint);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_caCertFingerprint = &bfr_caCertFingerprint;
+	 	strncpy(bfr_caCertFingerprint, text_line,sizeof(bfr_caCertFingerprint));
+
 
 	 	// _certSubject
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_certSubject);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
+	 	pConfig->_certSubject = &bfr_certSubject;
+	 	strncpy(bfr_certSubject, text_line,sizeof(bfr_certSubject));
+
 
 	 	// _getCaCertUrl
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	// Check for null param pointer
-	 	if (pConfig->_hashFunction!=0) {
-	        sscanf( text_line, "%s", pConfig->_getCaCertUrl);
-	 	}
-	 	else
-	 	{
-	 		iret = TsStatusErrorPayloadTooLarge;
-	 		goto error;
-	 	}
-
-        // _getCaCertUrl
-	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
-	 	if (TsStatusOk != iret)
-	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_getCaCertUrl);
+	 	pConfig->_getCaCertUrl = &bfr_getCaCertUrl;
+	 	strncpy(bfr_getCaCertUrl, text_line,sizeof(bfr_getCaCertUrl));
 
 	    // _getCertInitialUrl
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -582,60 +524,6 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	 		goto error;
 	    sscanf( text_line, "%d", pConfig->_getCertInitialUrl);
 
-#if 0
-		bool _enabled;			// Specifies if certificate auto-renewal is enable/disable on the device
-		bool _generateNewPrivateKey;
-		int _certExpiresAfter;		// Specifies the datetime, in ISO 8601 format, when this certificates expires.
-		int _certEnrollmentType;	// Specifies the protocol used to distribute the device certificate(SCEP/EST)
-		int _numDaysBeforeAutoRenew;	// Specifies the number of days before expiration where the certificate should be renewed
-		char *_encryptionAlgorithm 100;  	// Specifies the encryption algorithm RSA DE
-		char *_hashFunction 16; 		// Specifies the hash function to be used
-		int _retries; 			// Specifies the number of times to retries a cert renewal.
-		int _retryDelayInSeconds; 	// Specifies the delay, in units of seconds, between retries
-		int _keySize; 			// Specifies the key size
-		char *_keyUsage 10; 			// Arrays of strings that specifies the key usage values
-		char *_keyAlgorithm 100; 		// Specifies the key algorithm
-		char *_keyAlgorithmStrength 4096 2048 256 512; 	// Specifies the key algorithm strength
-		int _caInstance;
-		int _challengeType;
-		char *_challengeUsername 20;
-		char* urlBuffer = "XXXXXXXXXXXXXXXX";
-		char __challengeUsername = &urlBuffer;
-		char *_challengePassword; 20
-		char *_caCertFingerprint; 100
-		char *_certSubject; 100
-		char *_getCaCertUrl; 100
-		int _getCaCertUrl;
-		int _getCertInitialUrl;
-
-
-		ts_status_debug("ts_scepconfig_create");
-		ts_platform_assert(scepconfig != NULL);
-		*scepconfig = (TsScepConfigRef_t)ts_platform_malloc(sizeof(TsScepConfig_t));
-		(*scepconfig)->_enabled = false;
-		(*scepconfig)->_certExpiresAfter = false;
-		(*scepconfig)->_certEnrollmentType = false;
-		(*scepconfig)->_numDaysBeforeAutoRenew = 0;
-		(*scepconfig)->_encryptionAlgorithm = 1000;
-		(*scepconfig)->_hashFunction = 15;
-		(*scepconfig)->_retries = 0;
-		(*scepconfig)->_retryDelayInSeconds = 1000;
-		(*scepconfig)->_keySize = 15;
-		(*scepconfig)->_keyUsage = 0;
-		(*scepconfig)->_keyAlgorithm = 1;
-		(*scepconfig)->_keyAlgorithmStrength = 0;
-		(*scepconfig)->_caInstance = 1;
-		(*scepconfig)->_challengeType = 0;
-		char buffer[1000];
-		(*scepconfig)->_challengeUsername = 1000;
-		(*scepconfig)->_challengePassword = 15;
-		(*scepconfig)->_caCertFingerprint = 0;
-		(*scepconfig)->_certSubject = 1;
-		(*scepconfig)->_getCaCertUrl = 1000;
-		(*scepconfig)->_getPkcsRequestUrl = 15;
-		(*scepconfig)->_getCertInitialUrl = 0;
-		(*scepconfig)->_messageCallback = messageCallback;
-#endif
 
 
 	 	ts_file_close(&handle);
