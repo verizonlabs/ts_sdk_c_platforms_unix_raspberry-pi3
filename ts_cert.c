@@ -3,6 +3,7 @@
 #include "ts_cert.h"
 #include "ts_platform.h"
 #include "ts_util.h"
+#include "ts_file.h"
 
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
 static TsStatus_t _ts_handle_get( TsMessageRef_t fields );
@@ -323,7 +324,7 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
  * Save a scep configuration object to a file
 
  */
-TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* filename)
+TsStatus_t ts_scepconfig_save( TsScepConfigRef_t pConfig, char* path, char* filename)
 {
 
 }
@@ -333,21 +334,19 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 
   */
 #define SCEP_CONFIG_REV "083018-1"
- TsStatus_t ts_scepconfig_restore(TsScepConfigRef_t* pConfig, char* path, char* filename)
+ TsStatus_t ts_scepconfig_restore(TsScepConfigRef_t pConfig, char* path, char* filename)
   {
 	 	TsStatus_t iret = TsStatusOk;
 	 	ts_file_handle handle;
 	 	uint32_t actual_size, size;
 	 	uint8_t* addr;
-	 	char line[120];
-	 	char conv[100];\
-	 	// These are all used to whold string in the passed struct ptr
+	 	char text_line[120];
+	 	// These are all used to whold string in the passed struct ptr - the are returned via ptr so need statics
 	 	static char bfr_encryptionAlgorithm[100];
 	 	static char bfr_hashFunction[16];
 	 	static char bfr_keyUsage[10];
 	 	static char bfr_keyAlgorithm[100];
 	 	static char bfr_keyAlgorithmStrength[10];
-	 	static char bfr_challengeUsername[20];
 	 	static char bfr_urlBuffer[100];
 	 	static char bfr_challengeUsername[20];
 		static char bfr_challengePassword[20];
@@ -358,12 +357,12 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 
 	 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
 
-	 	iret = ts_file_directory_default_set(directory);
+	 	iret = ts_file_directory_default_set(path);
 	 	if (TsStatusOk != iret)
 	 		goto error;
 
 	 	// Open the specifid config file in the given directory
-	 	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
+	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_READ);
 	 	if (TsStatusOk != iret)
 	 		goto error;
 
@@ -387,13 +386,13 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_enabled = (strncmp(text_line,"1")==0)?true:false;
+	 	pConfig->_enabled = (strcmp(text_line,"1")==0)?true:false;
 
 	 	// Generate private key
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_generateNewPrivateKey = (strncmp(text_line,"1")==0)?true:false;
+	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1")==0)?true:false;
 
 	 	// _certExpiresAfter
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -417,15 +416,15 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_encryptionAlgorithm = &bfr__encryptionAlgorithm;
-	 	strncpy(bfr__encryptionAlgorithm, text_line,sizeof(bfr__encryptionAlgorithm));
+	 	pConfig->_encryptionAlgorithm = &bfr_encryptionAlgorithm;
+	 	strncpy(bfr_encryptionAlgorithm, text_line,sizeof(bfr_encryptionAlgorithm));
 
 	 	// _hashFunction
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
 	 	pConfig->_hashFunction = &bfr_hashFunction;
-	 	strncpy(bfr_hashFunction, text_line,s izeof(bfr_hashFunction));
+	 	strncpy(bfr_hashFunction, text_line,sizeof(bfr_hashFunction));
 
 
 	 	// _retries
@@ -450,8 +449,8 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_keyUsage= &bfr__keyUsage;
-	 	strncpy(bfr_eyUsage text_line,sizeof(bfr_keyUsage);
+	 	pConfig->_keyUsage= &bfr_keyUsage;
+	 	strncpy(bfr_keyUsage, text_line,sizeof(bfr_keyUsage));
 
 	 	// _keyAlgorithm
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -525,11 +524,9 @@ TsStatus_t ts_scepconfig_save( TsScepConfigRef_t* pConfig, char* path, char* fil
 	    sscanf( text_line, "%d", pConfig->_getCertInitialUrl);
 
 
-
+	 	error:
 	 	ts_file_close(&handle);
 
-
-	 	error:
 	 	return iret;
 
   }
