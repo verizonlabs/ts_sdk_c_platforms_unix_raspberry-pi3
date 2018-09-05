@@ -1,4 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
