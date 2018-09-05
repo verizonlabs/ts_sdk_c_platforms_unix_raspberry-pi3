@@ -81,9 +81,13 @@ static void ts_sleep(uint32_t microseconds) {
 #endif
 }
 
+static bool seeded = false;
 static void ts_random(uint32_t * number) {
-    srand((int)ts_time());
-    *number = (uint32_t)(rand()%(2^32-1));
+	if (!seeded) {
+		srand((int)ts_time());
+		seeded = true;
+	}
+	*number = (uint32_t)(rand()); // was (rand()%(2^32-1));
 }
 
 static void * ts_malloc(size_t size) {
