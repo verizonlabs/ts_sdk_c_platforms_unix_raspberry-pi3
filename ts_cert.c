@@ -3,6 +3,7 @@
 #include "ts_cert.h"
 #include "ts_platform.h"
 #include "ts_util.h"
+#include "ts_file.h"
 
 extern bool cert;
 
@@ -323,4 +324,349 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 	return TsStatusOk;
 }
 
+/**
+ * Save a scep configuration object to a file
+
+ */
+TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filename)
+{
+ 	TsStatus_t iret = TsStatusOk;
+ 	ts_file_handle handle;
+ 	uint32_t actual_size, size;
+ 	uint8_t* addr;
+ 	char text_line[120];
+
+ 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+	 	iret = ts_file_directory_default_set(path);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Remove the old file and create a new one
+	 	iret = ts_file_delete(filename);
+	 	iret = ts_file_create(filename);
+	 	// Open the specifid config file in the given directory
+	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_WRITE);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Write the signature line at the beginning
+	 	ts_file_writeline(&handle,SCEP_CONFIG_REV"\n");
+
+	 	snprintf(text_line, sizeof(text_line),  "%d\n", pConfig->_enabled);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line,sizeof(text_line), "%d\n",pConfig->_generateNewPrivateKey);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_certExpiresAfter);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_certEnrollmentType);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_numDaysBeforeAutoRenew);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_encryptionAlgorithm);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_hashFunction);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_retries);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_retryDelayInSeconds);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_keySize);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_keyUsage);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_keyAlgorithm);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_keyAlgorithmStrength);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_caInstance);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_challengeType);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengeUsername);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengePassword);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_caCertFingerprint);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_certSubject);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_getCaCertUrl);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_getPkcsRequestUrl);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_getCertInitialUrl);
+	 	iret = 	 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk)
+	 		goto error;
+
+
+	 	error:
+		ts_file_close(&handle);
+		return iret;
+}
+
+ /**
+  * Restore a scep configuration object from a file
+
+  */
+ TsStatus_t ts_scepconfig_restore(TsScepConfig_t* pConfig, char* path, char* filename)
+  {
+	 	TsStatus_t iret = TsStatusOk;
+	 	ts_file_handle handle;
+	 	uint32_t actual_size, size;
+	 	uint8_t* addr;
+	 	char text_line[120];
+	 	// These are all used to whold string in the passed struct ptr - the are returned via ptr so need statics
+	 	static char bfr_encryptionAlgorithm[100];
+	 	static char bfr_hashFunction[16];
+	 	static char bfr_keyUsage[10];
+	 	static char bfr_keyAlgorithm[100];
+	 	static char bfr_keyAlgorithmStrength[10];
+	 	static char bfr_urlBuffer[100];
+	 	static char bfr_challengeUsername[20];
+		static char bfr_challengePassword[20];
+		static char bfr_caCertFingerprint[100];
+		static char bfr_certSubject[100];
+		static char bfr_getCaCertUrl[100];
+
+
+	 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+	 	iret = ts_file_directory_default_set(path);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Open the specifid config file in the given directory
+	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_READ);
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+
+	   // Read each line in the config, storing the data, but first verify the format written is compatible with this
+	   // version of the code
+
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+
+	 	// Go the REV = check it - error if no match
+	 	if (strcmp(text_line,SCEP_CONFIG_REV ) !=0)
+	 	{
+	 		iret = TsStatusErrorMediaInvalid;
+	 		goto error;
+
+	 	}
+
+	 	// Auto Renew
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_enabled = (strcmp(text_line,"1")==0)?true:false;
+
+	 	// Generate private key
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1")==0)?true:false;
+
+	 	// _certExpiresAfter
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_certExpiresAfter);
+
+	    // _certEnrollmentType
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_certEnrollmentType);
+
+        // _numDaysBeforeAutoRenew
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_numDaysBeforeAutoRenew);
+
+	    // _encryptionAlgorithm
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_encryptionAlgorithm = bfr_encryptionAlgorithm;
+	 	strncpy(bfr_encryptionAlgorithm, text_line,sizeof(bfr_encryptionAlgorithm));
+
+	 	// _hashFunction
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_hashFunction = bfr_hashFunction;
+	 	strncpy(bfr_hashFunction, text_line,sizeof(bfr_hashFunction));
+
+
+	 	// _retries
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_retries);
+
+	    // _retryDelayInSeconds
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d",pConfig->_retryDelayInSeconds);
+
+	    // _keySize
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_keySize);
+
+	    // _keyUsage
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_keyUsage= bfr_keyUsage;
+	 	strncpy(bfr_keyUsage, text_line,sizeof(bfr_keyUsage));
+
+	 	// _keyAlgorithm
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_keyAlgorithm = bfr_keyAlgorithm;
+	 	strncpy(bfr_keyAlgorithm, text_line,sizeof(bfr_keyAlgorithm));
+
+	 	// _keyAlgorithmStrength
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_keyAlgorithmStrength = bfr_keyAlgorithmStrength;
+	 	strncpy(bfr_keyAlgorithmStrength, text_line,sizeof(bfr_keyAlgorithmStrength));
+
+	 	// _caInstance
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_caInstance);
+
+	 	// _challengeType
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_challengeType);
+
+	    // _challengeUsername
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_challengeUsername = bfr_challengeUsername;
+	 	strncpy(bfr_challengeUsername, text_line,sizeof(bfr_challengeUsername));
+
+
+	 	// _challengePassword
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_challengePassword = bfr_challengePassword;
+	 	strncpy(bfr_challengePassword, text_line,sizeof(bfr_challengePassword));
+
+
+	 	// _caCertFingerprint
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_caCertFingerprint = bfr_caCertFingerprint;
+	 	strncpy(bfr_caCertFingerprint, text_line,sizeof(bfr_caCertFingerprint));
+
+
+	 	// _certSubject
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_certSubject = bfr_certSubject;
+	 	strncpy(bfr_certSubject, text_line,sizeof(bfr_certSubject));
+
+
+	 	// _getCaCertUrl
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	 	pConfig->_getCaCertUrl = bfr_getCaCertUrl;
+	 	strncpy(bfr_getCaCertUrl, text_line,sizeof(bfr_getCaCertUrl));
+
+	    // _getCertInitialUrl
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+	    sscanf( text_line, "%d", pConfig->_getCertInitialUrl);
+
+
+	 	error:
+	 	ts_file_close(&handle);
+
+	 	return iret;
+
+  }
 
