@@ -131,8 +131,70 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 	return status;
 }
 
+// Loads a crypto object into memory from a files. Sizes the file and malloc needed memory
+// Certificate storage and keys - base credentials
+
+static TsStatus_t loadFileIntoRam(char* directory, char* file_name, uint8_t** buffer, uint32_t* loaded_size)
+{
+  	TsStatus_t iret = TsStatusOk;
+	ts_file_handle handle;
+	uint32_t actual_size, size;
+	uint8_t* addr;
+
+	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+#if 0
+	iret = ts_file_directory_default_set(directory);
+	if (TsStatusOk != iret)
+		goto error;
+#endif
+
+	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
+	if (TsStatusOk != iret)
+		goto error;
+
+	iret = ts_file_size(&handle, &size);
+	if (TsStatusOk != iret)
+		goto error;
+
+	addr = ts_platform_malloc( size);
+	if (addr==0)
+		goto error;
+
+    *buffer = addr;
+	iret = ts_file_read(&handle,addr, size, &actual_size);
+	// Make sure we got the whole thing
+	if (TsStatusOk != iret || size!=actual_size) {
+		ts_platform_free(addr, size);
+		goto error;
+	}
+	// The actual size of the object.  Users generall need to know how big it is
+    *loaded_size = size;
+	ts_file_close(&handle);
+
+
+	error:
+	return iret;
+
+}
+
 TsStatus_t ts_cert_make_update( TsMessageRef_t *new ) {
 
+#if 1
+#define OP_CERT_PATH "/usr/lib/thingspace/"
+#define OP_CERT_FILE "opcert.pem"
+	char *opcert;
+	ts_file_handle handle;
+	TsStatus_t iret = TsStatusOk;
+	static uint32_t size_cacert_buf;
+
+	// Read certs and keys into memory - Fatal is can't read them
+	iret = loadFileIntoRam(OP_CERT_PATH, OP_CERT_FILE, &opcert, &size_cacert_buf);
+	if( iret != TsStatusOk ) {
+		ts_status_debug("simple: failed to read CA Cert file %s\n", ts_status_string(iret));
+		ts_platform_assert(0);
+	}
+#endif
 	ts_status_trace("ts_cert_make_update");
 	TsStatus_t status = ts_message_create(new);
 	if (status != TsStatusOk) {
@@ -149,6 +211,9 @@ TsStatus_t ts_cert_make_update( TsMessageRef_t *new ) {
 		ts_message_destroy(*new);
 		return status;
 	}
+#if 1
+	ts_message_set_string(fields, "cert", opcert);
+#else
 	ts_message_set_string(fields, "cert", "-----BEGIN CERTIFICATE-----\n\
 MIIEODCCAyCgAwIBAgIUPZurKDWZxuyTcr7U80TaA9VggzwwDQYJKoZIhvcNAQEL\n\
 BQAwZzELMAkGA1UEBhMCVVMxGTAXBgNVBAoMEFZlcml6b24gV2lyZWxlc3MxFDAS\n\
@@ -174,6 +239,7 @@ UM8R9+M3AALH3XDBrj5zoTYx8rObKihZ1hLxYa5ZNvF3qCmw4WDEEqIBtem4GLuy\n\
 Zud+wYVMPWq2noul+uhrZBTMa6M5gE704lYeEyMM4O9ZlPg3gKLg1g2EF3ZTOMJD\n\
 TmXwK20y7b2AuemWHSz0lyZXJPn+9RubywqraA==\n\
 -----END CERTIFICATE-----");
+#endif
 	ts_status_trace("ts_cert_make_update successful\n");
 	return TsStatusOk;
 }
@@ -554,7 +620,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	if (TsStatusOk != iret)
 	 		goto error;
 
-	 	// Open the specifid config file in the given directory
+	 	// Open the specific config file in the given directory
 	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_READ);
 	 	if (TsStatusOk != iret)
 	 		goto error;
