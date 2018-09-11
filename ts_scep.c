@@ -29,6 +29,7 @@
 #include "ts_status.h"
 #include "ts_platform.h"
 #include "ts_cert.h"
+#include "ts_scep.h"
 
 typedef struct fx_errors_description
 {
@@ -56,13 +57,13 @@ static TsStatus_t ts_enroll(TsScepConfigRef_t config, scepOpType op);
 static void    ts_assertion(const char *msg, const char *file, int line);
 
 
-static TsScepVtable ts_platform_scep = {
+static TsScepVtable_t ts_platform_scep = {
 	.initialize = ts_initialize,
 	.scep_op = ts_enroll,
     .assertion = ts_assertion
 };
 
-const TsScepVtable * ts_scep = &ts_platform_scep;
+const TsScepVtable_t * ts_scep = &ts_platform_scep;
 
 /**
  * Initialize the storage device (flash) and the file system
@@ -80,7 +81,7 @@ static TsStatus_t ts_map_error(uint32_t scepError)
 
 	while (fx_error_codes_array[index].error_code != 0XFFFF)
 	{
-		if (fx_error_codes_array[index].error_code == osError)
+		if (fx_error_codes_array[index].error_code == scepError)
 		{
 			ret = fx_error_codes_array[index].ts_error;
 			break;
