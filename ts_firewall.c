@@ -88,7 +88,7 @@ static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_Deci
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
-#define GENERATE_TEST_EVENTS
+#define xGENERATE_TEST_EVENTS
 
 /**
  * Allocate and initialize a new firewall object.
@@ -115,7 +115,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 		return TsStatusErrorInternalServerError;
 	}
 
-	//MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
+	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 	ts_callback_context.alert_callback = alert_callback;
 
 	// initialize firewall object
