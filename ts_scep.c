@@ -56,18 +56,18 @@ static TsStatus_t ts_enroll(TsScepConfigRef_t config, scepOpType op);
 static void    ts_assertion(const char *msg, const char *file, int line);
 
 
-static TsFileVtable_t ts_platform_file = {
+static TsScepVtable ts_platform_scep = {
 	.initialize = ts_initialize,
-	.enroll = ts_enroll,
+	.scep_op = ts_enroll,
     .assertion = ts_assertion
 };
 
-const TsFileVtable_t * ts_scep = &ts_platform_scep;
+const TsScepVtable * ts_scep = &ts_platform_scep;
 
 /**
  * Initialize the storage device (flash) and the file system
  */
-static void ts_initialize (TsScepRef_t obj)
+static void ts_initialize ()
 {
 
 
