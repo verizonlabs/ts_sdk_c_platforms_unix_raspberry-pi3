@@ -5,6 +5,8 @@
 #include "ts_util.h"
 #include "ts_file.h"
 
+extern bool cert;
+
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
 static TsStatus_t _ts_handle_get( TsMessageRef_t fields );
 static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t fields );
@@ -26,21 +28,21 @@ TsStatus_t ts_scepconfig_create(TsScepConfigRef_t *scepconfig, TsStatus_t (*mess
 	(*scepconfig)->_certExpiresAfter = false;
 	(*scepconfig)->_certEnrollmentType = false;
 	(*scepconfig)->_numDaysBeforeAutoRenew = 0;
-	(*scepconfig)->_encryptionAlgorithm = 1000;
-	(*scepconfig)->_hashFunction = 15;
+	(*scepconfig)->_encryptionAlgorithm = "RSA";
+	(*scepconfig)->_hashFunction = "";
 	(*scepconfig)->_retries = 0;
 	(*scepconfig)->_retryDelayInSeconds = 1000;
 	(*scepconfig)->_keySize = 15;
 	(*scepconfig)->_keyUsage = 0;
-	(*scepconfig)->_keyAlgorithm = 1;
+	(*scepconfig)->_keyAlgorithm = 0;
 	(*scepconfig)->_keyAlgorithmStrength = 0;
 	(*scepconfig)->_caInstance = 1;
 	(*scepconfig)->_challengeType = 0;
-	(*scepconfig)->_challengeUsername = 1000;
-	(*scepconfig)->_challengePassword = 15;
-	(*scepconfig)->_caCertFingerprint = 0;
-	(*scepconfig)->_certSubject = 1;
-	(*scepconfig)->_getCaCertUrl = 1000;
+	(*scepconfig)->_challengeUsername = "user";
+	(*scepconfig)->_challengePassword = "psswd";
+	(*scepconfig)->_caCertFingerprint = "FingerPrint";
+	(*scepconfig)->_certSubject = "subject";
+	(*scepconfig)->_getCaCertUrl = "myurl";
 	(*scepconfig)->_getPkcsRequestUrl = 15;
 	(*scepconfig)->_getCertInitialUrl = 0;
 	(*scepconfig)->_messageCallback = messageCallback;
@@ -93,6 +95,9 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 					ts_status_debug(
 							"ts_cert_handle: delegate to set handler\n");
 					status = _ts_handle_set(scepconfig, fields);
+					ts_status_debug(
+							"ts_cert_handle: save the scepconfig structure\n");
+					status = ts_scepconfig_save(scepconfig, "/var/lib/thingspace/","scepconfig");
 					return status;
 
 				} else if (strcmp(action, "get") == 0) {
@@ -126,8 +131,70 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 	return status;
 }
 
+// Loads a crypto object into memory from a files. Sizes the file and malloc needed memory
+// Certificate storage and keys - base credentials
+
+static TsStatus_t loadFileIntoRam(char* directory, char* file_name, uint8_t** buffer, uint32_t* loaded_size)
+{
+  	TsStatus_t iret = TsStatusOk;
+	ts_file_handle handle;
+	uint32_t actual_size, size;
+	uint8_t* addr;
+
+	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
+
+#if 0
+	iret = ts_file_directory_default_set(directory);
+	if (TsStatusOk != iret)
+		goto error;
+#endif
+
+	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
+	if (TsStatusOk != iret)
+		goto error;
+
+	iret = ts_file_size(&handle, &size);
+	if (TsStatusOk != iret)
+		goto error;
+
+	addr = ts_platform_malloc( size);
+	if (addr==0)
+		goto error;
+
+    *buffer = addr;
+	iret = ts_file_read(&handle,addr, size, &actual_size);
+	// Make sure we got the whole thing
+	if (TsStatusOk != iret || size!=actual_size) {
+		ts_platform_free(addr, size);
+		goto error;
+	}
+	// The actual size of the object.  Users generall need to know how big it is
+    *loaded_size = size;
+	ts_file_close(&handle);
+
+
+	error:
+	return iret;
+
+}
+
 TsStatus_t ts_cert_make_update( TsMessageRef_t *new ) {
 
+#if 1
+#define OP_CERT_PATH "/usr/lib/thingspace/"
+#define OP_CERT_FILE "opcert.pem"
+	char *opcert;
+	ts_file_handle handle;
+	TsStatus_t iret = TsStatusOk;
+	static uint32_t size_cacert_buf;
+
+	// Read certs and keys into memory - Fatal is can't read them
+	iret = loadFileIntoRam(OP_CERT_PATH, OP_CERT_FILE, &opcert, &size_cacert_buf);
+	if( iret != TsStatusOk ) {
+		ts_status_debug("simple: failed to read CA Cert file %s\n", ts_status_string(iret));
+		ts_platform_assert(0);
+	}
+#endif
 	ts_status_trace("ts_cert_make_update");
 	TsStatus_t status = ts_message_create(new);
 	if (status != TsStatusOk) {
@@ -144,6 +211,9 @@ TsStatus_t ts_cert_make_update( TsMessageRef_t *new ) {
 		ts_message_destroy(*new);
 		return status;
 	}
+#if 1
+	ts_message_set_string(fields, "cert", opcert);
+#else
 	ts_message_set_string(fields, "cert", "-----BEGIN CERTIFICATE-----\n\
 MIIEODCCAyCgAwIBAgIUPZurKDWZxuyTcr7U80TaA9VggzwwDQYJKoZIhvcNAQEL\n\
 BQAwZzELMAkGA1UEBhMCVVMxGTAXBgNVBAoMEFZlcml6b24gV2lyZWxlc3MxFDAS\n\
@@ -169,6 +239,7 @@ UM8R9+M3AALH3XDBrj5zoTYx8rObKihZ1hLxYa5ZNvF3qCmw4WDEEqIBtem4GLuy\n\
 Zud+wYVMPWq2noul+uhrZBTMa6M5gE704lYeEyMM4O9ZlPg3gKLg1g2EF3ZTOMJD\n\
 TmXwK20y7b2AuemWHSz0lyZXJPn+9RubywqraA==\n\
 -----END CERTIFICATE-----");
+#endif
 	ts_status_trace("ts_cert_make_update successful\n");
 	return TsStatusOk;
 }
@@ -223,6 +294,7 @@ TsStatus_t ts_certrenew_handle( TsMessageRef_t fields ) {
 		ts_status_debug("_ts_handle_certrenew: cert renew field ends\n");
 	}
 	ts_status_debug("_ts_handle_certrenew: completed processing\n");
+	cert = true;
 	return TsStatusOk;
 }
 
@@ -270,13 +342,15 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 				== TsStatusOk) {
 			ts_status_debug("_ts_handle_set: certExpiresAfter = %s\n", scepconfig->_certExpiresAfter);
 		}
-		if( ts_message_get_string( fields, "keyAlgorithm", &(scepconfig->_keyAlgorithm)) == TsStatusOk ) {
+		if( ts_message_get_string( object, "keyAlgorithm", &(scepconfig->_keyAlgorithm))
+				== TsStatusOk ) {
 			ts_status_debug("_ts_handle_set: keyAlgorithm = %s\n", scepconfig->_keyAlgorithm);
 		}
-		if( ts_message_get_string( fields, "keyAlgorithmStrength", &(scepconfig)->_keyAlgorithmStrength) == TsStatusOk ) {
+		if( ts_message_get_string( object, "keyAlgorithmStrength", &(scepconfig->_keyAlgorithmStrength))
+				== TsStatusOk ) {
 			ts_status_debug("_ts_handle_set: keyAlgorithmStrength = %s\n", scepconfig->_keyAlgorithmStrength);
 		}
-		if( ts_message_get_int( fields, "keySize", &(scepconfig->_keySize)) == TsStatusOk ) {
+		if( ts_message_get_int( object, "keySize", &(scepconfig->_keySize)) == TsStatusOk ) {
 			ts_status_debug("_ts_handle_set: keySize = %d\n", scepconfig->_keySize);
 		}
 		if (ts_message_get_int(object, "certEnrollmentType", &(scepconfig->_certEnrollmentType))
@@ -317,6 +391,7 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 			}
 		}
 	}
+	cert = true;
 	return TsStatusOk;
 }
 
@@ -332,6 +407,8 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
  	uint8_t* addr;
  	char text_line[120];
 
+	ts_status_debug("ts_scepconfig_save: save the scepconfig structure\n");
+
  	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
 
 	 	iret = ts_file_directory_default_set(path);
@@ -343,124 +420,171 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	iret = ts_file_create(filename);
 	 	// Open the specifid config file in the given directory
 	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_WRITE);
-	 	if (TsStatusOk != iret)
+	 	if (TsStatusOk != iret) {
+			ts_status_debug("ts_scepconfig_save: Error in opening the the file %s\n", filename);
 	 		goto error;
+		}
 
 	 	// Write the signature line at the beginning
 	 	ts_file_writeline(&handle,SCEP_CONFIG_REV"\n");
 
 	 	snprintf(text_line, sizeof(text_line),  "%d\n", pConfig->_enabled);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing enabled to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line,sizeof(text_line), "%d\n",pConfig->_generateNewPrivateKey);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing generateNewPrivateKey to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_certExpiresAfter);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing certExpiresAfter to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_certEnrollmentType);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing certEnrollment to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_numDaysBeforeAutoRenew);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing numDaysBeforeAutoRenew to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_encryptionAlgorithm);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing encryptionAlgorithm to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_hashFunction);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing hashFunction to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_retries);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing retries to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_retryDelayInSeconds);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing retryDelayInSeconds to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_keySize);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing keySize to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_keyUsage);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing keyUsage to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_keyAlgorithm);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing keyAlgorithm to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_keyAlgorithmStrength);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing keyAlgorithmStrength to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_caInstance);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing challengeType to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_challengeType);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing challengeType to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengeUsername);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing challengeUsername to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengePassword);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing challengePassword to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_caCertFingerprint);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing caCertFingerprint to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_certSubject);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing certSubject to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_getCaCertUrl);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing getCaCertUrl to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_getPkcsRequestUrl);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing getPkcsRequestUrl to file\n");
 	 		goto error;
+		}
 
 	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_getCertInitialUrl);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk)
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing getCertInitialUrl to file\n");
 	 		goto error;
+		}
 
 
 	 	error:
+		ts_status_debug("ts_scepconfig_save: Closing the file\n");
 		ts_file_close(&handle);
 		return iret;
 }
@@ -496,7 +620,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	if (TsStatusOk != iret)
 	 		goto error;
 
-	 	// Open the specifid config file in the given directory
+	 	// Open the specific config file in the given directory
 	 	iret =  ts_file_open(&handle, filename, TS_FILE_OPEN_FOR_READ);
 	 	if (TsStatusOk != iret)
 	 		goto error;
