@@ -623,6 +623,11 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
 				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
 			}
+			//  compensate for platform/provider typo
+			if( ts_message_get_int( contents, "alert_threshold_outboun", &(ts_callback_context.alert_threshold_outbound) ) == TsStatusOk ) {
+				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
+				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
+			}
 		}
 
 		// update rules
