@@ -926,6 +926,12 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 	case MFIREWALL_RULE_IF_WIFI:
 		interface = "wifi";
 		break;
+	case MFIREWALL_RULE_IF_PPP:
+		interface = "ppp";
+		break;
+	case MFIREWALL_RULE_IF_CELL:
+		interface = "cell";
+		break;
 	default:
 		interface = "unknown";
 		break;
@@ -1000,6 +1006,10 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_LAN;
 		} else if( strcmp( string, "wifi" ) == 0 ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_WIFI;
+		} else if ( strcmp( string, "ppp" )  == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_PPP;
+		} else if( strcmp( string, "cell" ) == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_CELL;
 		}
 	}
 
