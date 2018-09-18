@@ -634,7 +634,7 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 		// note that the array can only be 15 items long (limitation of ts_message)
 		if( ts_message_get_array( object, "rules", &contents ) == TsStatusOk ) {
 
-			ts_status_debug( "ts_firewall_nano: set rules\n" );
+			ts_status_debug( "ts_firewall: set rules\n" );
 			size_t length;
 			ts_message_get_size( contents, &length );
 			ts_status_debug( "length is: %d\n", length );
@@ -885,6 +885,8 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_PORT ) ||
 			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_MAC ) ) {
 		match = "destination";
+	} else if( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DOMAIN_FILTER ) {
+		match = "domain";
 	}
 	ts_message_set_string( ts_rule, "match", match );
 
@@ -938,6 +940,10 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 	}
 	ts_message_set_string( ts_rule, "interface", interface );
 
+	if ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DOMAIN_FILTER ) {
+		ts_message_set_bool( ts_rule, "domain", true );
+	}
+
 	// convert source
 	if( ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
 			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
@@ -976,12 +982,20 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 
 	ubyte matchFlags = 0x00;
 	char * string;
+	bool match_domains;
 
 	// convert action
 	mf_rule.action = MFIREWALL_ACTION_ACCEPT;
 	if( ts_message_get_string( ts_rule, "action", &string ) == TsStatusOk ) {
 		if( strcmp( string, "drop" ) == 0 ) {
 			mf_rule.action = MFIREWALL_ACTION_DROP;
+		}
+	}
+
+	// convert domain-matching flag
+	if ( ts_message_get_bool( ts_rule, "domain", &match_domains ) == TsStatusOk ) {
+		if ( match_domains ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DOMAIN_FILTER;
 		}
 	}
 
