@@ -26,7 +26,7 @@ static TsStatus_t _ts_handle_get(TsFirewallRef_t, TsMessageRef_t);
 static TsStatus_t _ts_handle_delete(TsFirewallRef_t, TsMessageRef_t);
 
 static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t );
-static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t, unsigned long* );
+static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t, unsigned int* );
 static TsStatus_t _mf_set_enabled( TsFirewallRef_t );
 static TsStatus_t _mf_set_default_policy( TsMessageRef_t policy );
 static TsStatus_t _mf_set_default_rules( TsFirewallRef_t );
@@ -146,8 +146,8 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 #ifdef TEST_CONFIG_WALL
 	(*firewall)->_enabled = true;
 	int n_rules = 0;
-	unsigned long inboundIndex = 0;
-	unsigned long outboundIndex = 0;
+	unsigned int inboundIndex = 0;
+	unsigned int outboundIndex = 0;
 
 	_mf_set_enabled(*firewall);
 
@@ -275,7 +275,8 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 	return status;
 }
 
-static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo) {
+static void _ts_decision_callback (void *contextArg, PMFIREWALL_DecisionInfo pDecisionInfo) {
+	TsCallbackContext_t *context = (TsCallbackContext_t *)contextArg;
 	if (pDecisionInfo->action == MFIREWALL_ACTION_DROP) {
 		FIREWALL_LOG(TsLogLevelAlert, "Packet rejected, sense = %s\n", (pDecisionInfo->ruleListIndex == MFIREWALL_RULE_LIST_INBOUND ? "inbound" : "outbound"));
 		switch(pDecisionInfo->ruleListIndex) {
@@ -576,8 +577,8 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 	TsMessageRef_t contents;
 	TsMessageRef_t object;
 	TsMessageRef_t rejectMessage;
-	unsigned long inbound_index = 0;
-	unsigned long outbound_index = 0;
+	unsigned int inbound_index = 0;
+	unsigned int outbound_index = 0;
 	char* string = NULL;
 	if( ts_message_get_message( fields, "firewall", &object ) == TsStatusOk ) {
 
@@ -642,7 +643,7 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 
 				// set by id, or add to back w/o id ("set" or "update")
 				TsMessageRef_t current = contents->value._xfields[ i ];
-				unsigned long id = 0;
+				unsigned int id = 0;
 				int id_int = 0;
 
 				if( ts_message_get_int( current, "id", &id_int ) == TsStatusOk ) {
@@ -681,7 +682,7 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 
 				// set by id, or add to back w/o id ("set" or "update")
 				TsMessageRef_t current = contents->value._xfields[ i ];
-				unsigned long id = 0;
+				unsigned int id = 0;
 				int id_int = 0;
 
 				if( ts_message_get_int( current, "id", &id_int ) == TsStatusOk ) {
@@ -1285,7 +1286,7 @@ static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t firewall ) {
 	return TsStatusOk;
 }
 
-static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t rule, unsigned long* id ) {
+static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t rule, unsigned int* id ) {
 
 	MFIREWALL_RuleEntry mf_rule = _ts_to_mf_rule( rule );
 	MFIREWALL_RuleListIndex rli = MFIREWALL_RULE_LIST_INBOUND;
@@ -1319,7 +1320,7 @@ static TsStatus_t _mf_set_custom_domains( TsFirewallRef_t firewall ) {
 			break;
 		}
 
-		snprintf( domains + index, domains_size - index, "%s", domain );
+		snprintf( (char *)(domains + index), domains_size - index, "%s", domain );
 		index = index + domain_size + 1;
 	}
 
