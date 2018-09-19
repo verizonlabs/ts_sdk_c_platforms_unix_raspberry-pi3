@@ -154,7 +154,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 	ts_message_set_string(domainMessage, "action", "reject");
 	ts_message_set_string(domainMessage, "sense", "outbound");
 	_mf_insert_custom_rule(domainMessage, &index);
-	ts_message_destroy(&domainMessage);
+	ts_message_destroy(domainMessage);
 	index++;
 
 	(*firewall)->_enabled = true;
