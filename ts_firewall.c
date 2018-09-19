@@ -146,6 +146,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 #ifdef TEST_DOMAIN_FILTER
 	ts_message_set_string_at( (*firewall)->_domains, 0, "google.com");
 	ts_message_set_string_at( (*firewall)->_domains, 1, "thingspace.verizon.com");
+	_mf_set_custom_domains(*firewall);
 
 	TsMessageRef_t domainMessage;
 	unsigned int index = 0;
