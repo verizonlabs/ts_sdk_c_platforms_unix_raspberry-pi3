@@ -89,6 +89,7 @@ static void _ts_decision_callback (void *context, PMFIREWALL_DecisionInfo pDecis
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
 #define xGENERATE_TEST_EVENTS
+#define TEST_DOMAIN_FILTER
 
 /**
  * Allocate and initialize a new firewall object.
@@ -142,6 +143,23 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	(*firewall)->_enabled = FALSE;
 
+#ifdef TEST_DOMAIN_FILTER
+	ts_message_set_string_at( (*firewall)->_domains, 0, "google.com");
+	ts_message_set_string_at( (*firewall)->_domains, 1, "thingspace.verizon.com");
+
+	TsMessageRef_t domainMessage;
+	unsigned int index = 0;
+	ts_message_create(&domainMessage);
+	ts_message_set_bool(domainMessage, "domain", true);
+	ts_message_set_string(domainMessage, "action", "reject");
+	ts_message_set_string(domainMessage, "sense", "outbound");
+	_mf_insert_custom_rule(domainMessage, &index);
+	ts_message_destroy(&domainMessage);
+	index++;
+
+	(*firewall)->_enabled = true;
+	_mf_set_enabled(*firewall);
+#endif /* TEST_DOMAIN_FILTER */
 
 #ifdef TEST_CONFIG_WALL
 	(*firewall)->_enabled = true;
