@@ -89,7 +89,7 @@ static void _ts_decision_callback (void *context, PMFIREWALL_DecisionInfo pDecis
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
 #define xGENERATE_TEST_EVENTS
-#define TEST_DOMAIN_FILTER
+#define xTEST_DOMAIN_FILTER
 
 /**
  * Allocate and initialize a new firewall object.
