@@ -88,7 +88,7 @@ static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_Deci
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
-#define GENERATE_TEST_EVENTS
+#define xGENERATE_TEST_EVENTS
 
 /**
  * Allocate and initialize a new firewall object.
@@ -115,7 +115,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 		return TsStatusErrorInternalServerError;
 	}
 
-	//MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
+	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 	ts_callback_context.alert_callback = alert_callback;
 
 	// initialize firewall object
@@ -159,7 +159,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "34.10.98.63");
+	ts_message_set_string(source, "address", "63.98.10.34");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_string(source, "port", "8883");
 	ts_message_set_message(whitelistMessage, "destination", source);
@@ -172,7 +172,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "34.10.98.63");
+	ts_message_set_string(source, "address", "63.98.10.34");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_string(source, "port", "8883");
 	ts_message_set_message(whitelistMessage, "source", source);
@@ -186,7 +186,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "206.1.168.192");
+	ts_message_set_string(source, "address", "192.168.1.206");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "source", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
@@ -197,7 +197,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "206.1.168.192");
+	ts_message_set_string(source, "address", "192.168.1.206");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "destination", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
@@ -623,6 +623,11 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
 				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
 			}
+			//  compensate for platform/provider typo
+			if( ts_message_get_int( contents, "alert_threshold_outboun", &(ts_callback_context.alert_threshold_outbound) ) == TsStatusOk ) {
+				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
+				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
+			}
 		}
 
 		// update rules
@@ -921,6 +926,12 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 	case MFIREWALL_RULE_IF_WIFI:
 		interface = "wifi";
 		break;
+	case MFIREWALL_RULE_IF_PPP:
+		interface = "ppp";
+		break;
+	case MFIREWALL_RULE_IF_CELL:
+		interface = "cell";
+		break;
 	default:
 		interface = "unknown";
 		break;
@@ -995,6 +1006,10 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_LAN;
 		} else if( strcmp( string, "wifi" ) == 0 ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_WIFI;
+		} else if ( strcmp( string, "ppp" )  == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_PPP;
+		} else if( strcmp( string, "cell" ) == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_CELL;
 		}
 	}
 
