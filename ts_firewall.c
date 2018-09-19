@@ -152,7 +152,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 	unsigned int index = 0;
 	ts_message_create(&domainMessage);
 	ts_message_set_bool(domainMessage, "domain", true);
-	ts_message_set_string(domainMessage, "action", "reject");
+	ts_message_set_string(domainMessage, "action", "drop");
 	ts_message_set_string(domainMessage, "sense", "outbound");
 	_mf_insert_custom_rule(domainMessage, &index);
 	ts_message_destroy(domainMessage);
