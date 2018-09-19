@@ -83,7 +83,7 @@ static TsCallbackContext_t ts_callback_context = {
 	.log = NULL,
 };
 
-static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo);
+static void _ts_decision_callback (void *context, PMFIREWALL_DecisionInfo pDecisionInfo);
 
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
