@@ -87,7 +87,7 @@ static void _ts_decision_callback (void *context, PMFIREWALL_DecisionInfo pDecis
 
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
-#define TEST_CONFIG_WALL
+#define xTEST_CONFIG_WALL
 #define xGENERATE_TEST_EVENTS
 
 /**
@@ -151,11 +151,6 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	_mf_set_enabled(*firewall);
 
-	ts_message_set_string_at( (*firewall)->_domains, 0, "google.com");
-	ts_message_set_string_at( (*firewall)->_domains, 1, "thingspace.verizon.com");
-
-	_mf_set_custom_domains(*firewall);
-
 	ts_callback_context.alerts_enabled = true;
 	ts_callback_context.alert_threshold_inbound = 2;
 	ts_callback_context.alert_threshold_outbound = 2;
@@ -191,63 +186,26 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "192.168.1.1");
+	ts_message_set_string(source, "address", "192.168.1.206");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "source", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
 	ts_message_set_string(whitelistMessage, "sense", "inbound");
-	ts_message_set_string(whitelistMessage, "protocol", "udp");
+	ts_message_set_string(whitelistMessage, "protocol", "icmp");
 	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
 	inboundIndex++;
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "192.168.1.1");
+	ts_message_set_string(source, "address", "192.168.1.206");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "destination", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
 	ts_message_set_string(whitelistMessage, "sense", "outbound");
-	ts_message_set_string(whitelistMessage, "protocol", "udp");
+	ts_message_set_string(whitelistMessage, "protocol", "icmp");
 	_mf_insert_custom_rule(whitelistMessage, &outboundIndex);
 	outboundIndex++;
 
-	ts_message_create(&whitelistMessage);
-	ts_message_create(&source);
-	ts_message_set_string(source, "address", "192.168.1.1");
-	ts_message_set_string(source, "netmask", "255.255.255.255");
-	ts_message_set_message(whitelistMessage, "source", source);
-	ts_message_set_string(whitelistMessage, "action", "accept");
-	ts_message_set_string(whitelistMessage, "sense", "inbound");
-	ts_message_set_string(whitelistMessage, "protocol", "tcp");
-	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
-	inboundIndex++;
-
-	ts_message_create(&whitelistMessage);
-	ts_message_create(&source);
-	ts_message_set_string(source, "address", "192.168.1.1");
-	ts_message_set_string(source, "netmask", "255.255.255.255");
-	ts_message_set_message(whitelistMessage, "destination", source);
-	ts_message_set_string(whitelistMessage, "action", "accept");
-	ts_message_set_string(whitelistMessage, "sense", "outbound");
-	ts_message_set_string(whitelistMessage, "protocol", "tcp");
-	_mf_insert_custom_rule(whitelistMessage, &outboundIndex);
-	outboundIndex++;
-
-	ts_message_create(&whitelistMessage);
-	ts_message_create(&source);
-	ts_message_set_string(whitelistMessage, "action", "accept");
-	ts_message_set_string(whitelistMessage, "sense", "outbound");
-	ts_message_set_bool(whitelistMessage, "domain", true);
-	_mf_insert_custom_rule(whitelistMessage, &outboundIndex);
-	outboundIndex++;
-
-	ts_message_create(&whitelistMessage);
-	ts_message_create(&source);
-	ts_message_set_string(whitelistMessage, "action", "accept");
-	ts_message_set_string(whitelistMessage, "sense", "inbound");
-	ts_message_set_bool(whitelistMessage, "domain", true);
-	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
-	inboundIndex++;
 
 	ts_message_create(&rejectMessage);
 	ts_message_set_string(rejectMessage, "action", "drop");
