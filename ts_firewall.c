@@ -42,6 +42,10 @@ static TsStatus_t _ts_refresh_array( TsMessageRef_t * );
 static void _ts_make_rejection_alert( TsMessageRef_t *, TsMessageRef_t *, TsMessageRef_t *, int, char *, PMFIREWALL_DecisionInfo);
 static char * _ip_to_string( ubyte4, char *, size_t );
 static char * _mac_to_string( ubyte mac[6], char * string, size_t string_size );
+static ubyte4 _string_to_ip( char * string );
+static void _string_to_mac( char * string, ubyte mac[6] );
+
+
 static TsStatus_t _log( TsLogLevel_t level, char *message );
 
 #define FIREWALL_LOG(level, ...) {char log_string[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log(level, log_string);}
@@ -70,7 +74,7 @@ static TsFirewallVtable_t ts_firewall_mocana = {
 	.suspended = ts_suspended,
 };
 const TsFirewallVtable_t * ts_firewall = &(ts_firewall_mocana);
-int fw_test();
+
 static TsCallbackContext_t ts_callback_context = {
 	.alerts_enabled = FALSE,
 	.alert_in_progress = FALSE,
@@ -84,11 +88,11 @@ static TsCallbackContext_t ts_callback_context = {
 };
 
 static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo);
-//#define TEST_CONFIG_WALL
 
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
+#define GENERATE_TEST_EVENTS
 
 /**
  * Allocate and initialize a new firewall object.
@@ -115,7 +119,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 		return TsStatusErrorInternalServerError;
 	}
 
-	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
+	//MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 	ts_callback_context.alert_callback = alert_callback;
 
 	// initialize firewall object
@@ -183,15 +187,11 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 	ts_message_set_string(whitelistMessage, "action", "accept");
 	ts_message_set_string(whitelistMessage, "sense", "inbound");
 	ts_message_set_string(whitelistMessage, "protocol", "tcp");
-	//_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
+	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
 	ts_status_debug("outbound_index:%d\n", (int)inboundIndex);
 	inboundIndex++;
 
-	// Try the message
-	TsFirewallRef_t xfirewall;
-	ts_handle( xfirewall, whitelistMessage ) ;
 
-    return status;
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
 	ts_message_set_string(source, "address", "206.1.168.192");
@@ -428,7 +428,11 @@ static TsStatus_t ts_destroy( TsFirewallRef_t firewall ) {
 	return TsStatusOk;
 }
 
-/**
+#ifdef GENERATE_TEST_EVENTS
+static int count = 0;
+#endif
+
+/*
  * Provide the given firewall processing time according to the given budget "recommendation".
  * This function is typically called from ts_service.
  *
@@ -458,6 +462,34 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 
 		firewall->_last_report_time = ts_platform_time();
 	}
+
+#ifdef GENERATE_TEST_EVENTS
+	// Generate a fake packet rejection, if the firewall is operating
+
+	if (firewall && firewall->_enabled && !(firewall->_suspended)) {
+		count++;
+		if (count >= 5) {
+			count = 0;
+			MFIREWALL_DecisionInfo info;
+			info.ruleListIndex = MFIREWALL_RULE_LIST_INBOUND;
+			info.action = MFIREWALL_ACTION_DROP;
+
+			M_IPV4_HEADER ipHeader;
+			ipHeader.protocol = M_IP_PROTOCOL_ICMP; // for simplicity (don't need the extra header info for tcp/udp)
+			ipHeader.sourceAddress = _string_to_ip("128.0.0.1");
+			ipHeader.destinationAddress = _string_to_ip("129.0.0.1");
+			info.pIpHeader = &ipHeader;
+
+			M_ETHERNET_HEADER ethernetHeader;
+			_string_to_mac("01:23:45:67:89:ab", ethernetHeader.sourceAddress);
+			_string_to_mac("cd:ef:01:23:45:67", ethernetHeader.destinationAddress);
+			info.pEthernetHeader = &ethernetHeader;
+
+			_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
+		}
+	}
+
+#endif /* GENERATE_TEST_EVENTS */
 
 	if (ts_callback_context.alert_in_progress && ts_callback_context.alert_to_send != NULL) {
 		ts_message_dump(ts_callback_context.alert_to_send);
@@ -1215,8 +1247,8 @@ static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t firewall ) {
 	// get domains
 	_ts_refresh_array( &(firewall->_domains) );
 
-	char * domains = MFIREWALL_getDomainList();
-	ubyte4 domains_size = MFIREWALL_getDomainListLength( domains );
+	char * domains = NULL; // MFIREWALL_getDomainList();
+	ubyte4 domains_size = 0; // MFIREWALL_getDomainListLength( domains );
 	int index = 0;
 	for( int i = 0; i < domains_size; i++ ) {
 
@@ -1618,4 +1650,4 @@ int fw_test() {
 #endif
 
 
-#endif
+#endif // TS_FIREWALL_CUSTOM
