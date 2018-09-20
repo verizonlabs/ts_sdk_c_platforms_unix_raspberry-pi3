@@ -1,5 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
-#if defined(TS_FIREWALL_CUSTOM)
+#if !defined(X_DO_NOT_COMPILE_YET)
 #include <stdio.h>
 #include <string.h>
 #include "wall/mfw_internal.h"
@@ -10,6 +10,7 @@
 #include "ts_status.h"
 #include "ts_util.h"
 #include "ts_log.h"
+#include "ts_file.h"
 
 static TsStatus_t ts_create(TsFirewallRef_t *,  TsStatus_t (*alert_callback) (TsMessageRef_t, char *) );
 static TsStatus_t ts_destroy(TsFirewallRef_t);
@@ -33,15 +34,14 @@ static TsStatus_t _mf_set_default_rules( TsFirewallRef_t );
 static TsStatus_t _mf_set_custom_domains( TsFirewallRef_t );
 static TsStatus_t _mf_set_default_domains( TsFirewallRef_t );
 static TsStatus_t _mf_delete( char * sense, int id );
+static TsStatus_t _mf_save( TsMessageRef_t);
+static TsStatus_t _mf_restore(TsFirewallRef_t );
+
 static TsStatus_t _ts_refresh_array( TsMessageRef_t * );
 
 static void _ts_make_rejection_alert( TsMessageRef_t *, TsMessageRef_t *, TsMessageRef_t *, int, char *, PMFIREWALL_DecisionInfo);
 static char * _ip_to_string( ubyte4, char *, size_t );
 static char * _mac_to_string( ubyte mac[6], char * string, size_t string_size );
-static ubyte4 _string_to_ip( char * string );
-static void _string_to_mac( char * string, ubyte mac[6] );
-
-
 static TsStatus_t _log( TsLogLevel_t level, char *message );
 
 #define FIREWALL_LOG(level, ...) {char log_string[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log(level, log_string);}
@@ -70,7 +70,7 @@ static TsFirewallVtable_t ts_firewall_mocana = {
 	.suspended = ts_suspended,
 };
 const TsFirewallVtable_t * ts_firewall = &(ts_firewall_mocana);
-
+int fw_test();
 static TsCallbackContext_t ts_callback_context = {
 	.alerts_enabled = FALSE,
 	.alert_in_progress = FALSE,
@@ -84,11 +84,11 @@ static TsCallbackContext_t ts_callback_context = {
 };
 
 static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo);
+//#define TEST_CONFIG_WALL
 
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
-#define xGENERATE_TEST_EVENTS
 
 /**
  * Allocate and initialize a new firewall object.
@@ -142,6 +142,10 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	(*firewall)->_enabled = FALSE;
 
+	// See if there are persistent firewall rules to restore - ignore status
+	// It's not fatal if no rules to restore
+   _mf_restore(*firewall);
+
 
 #ifdef TEST_CONFIG_WALL
 	(*firewall)->_enabled = true;
@@ -159,7 +163,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "63.98.10.34");
+	ts_message_set_string(source, "address", "34.10.98.63");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_string(source, "port", "8883");
 	ts_message_set_message(whitelistMessage, "destination", source);
@@ -172,21 +176,25 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "63.98.10.34");
+	ts_message_set_string(source, "address", "34.10.98.63");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_string(source, "port", "8883");
 	ts_message_set_message(whitelistMessage, "source", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
 	ts_message_set_string(whitelistMessage, "sense", "inbound");
 	ts_message_set_string(whitelistMessage, "protocol", "tcp");
-	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
+	//_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
 	ts_status_debug("outbound_index:%d\n", (int)inboundIndex);
 	inboundIndex++;
 
+	// Try the message
+	TsFirewallRef_t xfirewall;
+	ts_handle( xfirewall, whitelistMessage ) ;
 
+    return status;
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "192.168.1.206");
+	ts_message_set_string(source, "address", "206.1.168.192");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "source", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
@@ -197,7 +205,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	ts_message_create(&whitelistMessage);
 	ts_message_create(&source);
-	ts_message_set_string(source, "address", "192.168.1.206");
+	ts_message_set_string(source, "address", "206.1.168.192");
 	ts_message_set_string(source, "netmask", "255.255.255.255");
 	ts_message_set_message(whitelistMessage, "destination", source);
 	ts_message_set_string(whitelistMessage, "action", "accept");
@@ -373,7 +381,7 @@ static void _ts_make_rejection_alert( TsMessageRef_t *alert, TsMessageRef_t *sou
 		break;
 	}
 	if (protocol != NULL) {
-		ts_message_set_string( fields, "protocol", (char *)protocol);
+		ts_message_set_string( fields, "protocol", protocol);
 	}
 
 	ts_message_set_string( *source, "address", _ip_to_string( mfw_ip_header->sourceAddress, tmp, 25) );
@@ -420,11 +428,7 @@ static TsStatus_t ts_destroy( TsFirewallRef_t firewall ) {
 	return TsStatusOk;
 }
 
-#ifdef GENERATE_TEST_EVENTS
-static int count = 0;
-#endif
-
-/*
+/**
  * Provide the given firewall processing time according to the given budget "recommendation".
  * This function is typically called from ts_service.
  *
@@ -454,34 +458,6 @@ static TsStatus_t ts_tick( TsFirewallRef_t firewall, uint32_t budget ) {
 
 		firewall->_last_report_time = ts_platform_time();
 	}
-
-#ifdef GENERATE_TEST_EVENTS
-	// Generate a fake packet rejection, if the firewall is operating
-
-	if (firewall && firewall->_enabled && !(firewall->_suspended)) {
-		count++;
-		if (count >= 5) {
-			count = 0;
-			MFIREWALL_DecisionInfo info;
-			info.ruleListIndex = MFIREWALL_RULE_LIST_INBOUND;
-			info.action = MFIREWALL_ACTION_DROP;
-
-			M_IPV4_HEADER ipHeader;
-			ipHeader.protocol = M_IP_PROTOCOL_ICMP; // for simplicity (don't need the extra header info for tcp/udp)
-			ipHeader.sourceAddress = _string_to_ip("128.0.0.1");
-			ipHeader.destinationAddress = _string_to_ip("129.0.0.1");
-			info.pIpHeader = &ipHeader;
-
-			M_ETHERNET_HEADER ethernetHeader;
-			_string_to_mac("01:23:45:67:89:ab", ethernetHeader.sourceAddress);
-			_string_to_mac("cd:ef:01:23:45:67", ethernetHeader.destinationAddress);
-			info.pEthernetHeader = &ethernetHeader;
-
-			_ts_decision_callback (&ts_callback_context, (PMFIREWALL_DecisionInfo)&info);
-		}
-	}
-
-#endif /* GENERATE_TEST_EVENTS */
 
 	if (ts_callback_context.alert_in_progress && ts_callback_context.alert_to_send != NULL) {
 		ts_message_dump(ts_callback_context.alert_to_send);
@@ -524,6 +500,11 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 					// set or update a rule or domain
 					ts_status_debug("ts_firewall_nano: delegate to set handler\n" );
 					status = _ts_handle_set( firewall, fields );
+					// If it was set ok, the save the rules so they are persistent
+					if (status == OK)  {
+						ts_status_trace( "Saving firewall rules\n" );
+						status = _mf_save(message);
+					}
 
 				} else if( strcmp( action, "update" ) == 0 ) {
 
@@ -620,11 +601,6 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 				ts_status_info( "_ts_firewall_set: alert_threshold_inbound, %d\n", ts_callback_context.alert_threshold_inbound );
 			}
 			if( ts_message_get_int( contents, "alert_threshold_outbound", &(ts_callback_context.alert_threshold_outbound) ) == TsStatusOk ) {
-				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
-				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
-			}
-			//  compensate for platform/provider typo
-			if( ts_message_get_int( contents, "alert_threshold_outboun", &(ts_callback_context.alert_threshold_outbound) ) == TsStatusOk ) {
 				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
 				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
 			}
@@ -926,12 +902,6 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 	case MFIREWALL_RULE_IF_WIFI:
 		interface = "wifi";
 		break;
-	case MFIREWALL_RULE_IF_PPP:
-		interface = "ppp";
-		break;
-	case MFIREWALL_RULE_IF_CELL:
-		interface = "cell";
-		break;
 	default:
 		interface = "unknown";
 		break;
@@ -1006,10 +976,6 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_LAN;
 		} else if( strcmp( string, "wifi" ) == 0 ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_WIFI;
-		} else if ( strcmp( string, "ppp" )  == 0 ) {
-			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_PPP;
-		} else if( strcmp( string, "cell" ) == 0 ) {
-			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_CELL;
 		}
 	}
 
@@ -1249,8 +1215,8 @@ static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t firewall ) {
 	// get domains
 	_ts_refresh_array( &(firewall->_domains) );
 
-	char * domains = NULL; // MFIREWALL_getDomainList();
-	ubyte4 domains_size = 0; // MFIREWALL_getDomainListLength( domains );
+	char * domains = MFIREWALL_getDomainList();
+	ubyte4 domains_size = MFIREWALL_getDomainListLength( domains );
 	int index = 0;
 	for( int i = 0; i < domains_size; i++ ) {
 
@@ -1382,4 +1348,274 @@ static TsStatus_t _mf_delete( char * sense, int id ) {
 	return TsStatusOk;
 }
 
-#endif // TS_FIREWALL_CUSTOM
+
+#define FW_DIRECTORY "/var/lib/thingspace/firewall"
+//#define FW_DIRECTORY "/"
+#define FW_VERSION_FILE "fw_version_file"
+#define FW_RULES_FILE "fw_rules_file"
+static uint8_t cbor_Buffer[2048];
+// DO NOT change the length of next string - only the contents.
+#define FW_STORAGE_VERSION "FW-001"
+
+static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
+	ts_status_trace( "ts_firewall saving rules\n" );
+
+	// Create the directory for saving firewall rules - it may already be present
+  	TsStatus_t iret = TsStatusOk;
+  	TsStatus_t iret1 = TsStatusOk;
+	ts_file_handle handle;
+	uint32_t  buffer_size;
+
+	// Get to the directory - may need to create it
+	iret = ts_file_directory_default_set(FW_DIRECTORY);
+	if (TsStatusOk != iret) {
+		iret = ts_file_directory_create(FW_DIRECTORY);
+		if (TsStatusOk != iret) {
+			ts_status_trace( "ts_firewall Can't create default director\n" );
+			goto error;
+		}
+
+		ts_status_trace( "ts_firewall Default directory created\n" );
+		goto error;
+	}
+
+	iret = ts_file_directory_default_set(FW_DIRECTORY);
+	if (TsStatusOk != iret) {
+		ts_status_trace( "ts_firewall can't change directory\n" );
+		goto error;
+	}
+
+	// Write the FW SW version string for this version of the firewall
+	iret = ts_file_delete(FW_VERSION_FILE);
+	iret = ts_file_create(FW_VERSION_FILE);
+	iret =  ts_file_open(&handle, FW_VERSION_FILE, TS_FILE_OPEN_FOR_WRITE);
+	if (TsStatusOk != iret) {
+		ts_status_trace( "ts_firewall can't open version file\n" );
+		goto error;
+	}
+
+	iret = ts_file_write(&handle,FW_STORAGE_VERSION, sizeof(FW_STORAGE_VERSION));
+	ts_file_close(&handle);
+
+	if (TsStatusOk != iret) {
+		ts_status_trace( "ts_firewall can't write version file\n" );
+		goto error;
+	}
+
+	// Serialize the rules back into a CBOR message, and write out the entire buffer
+	// in one chunk.
+	// Pre-pend a 4 byte size to the front of the file so we know how big to read it back
+	buffer_size=sizeof(cbor_Buffer);
+	iret = ts_message_encode( dataToSave, TsEncoderTsCbor, cbor_Buffer, &buffer_size );
+	if (TsStatusOk != iret) {
+		ts_status_trace( "ts_firewall can't encode rules to cbor format\n" );
+		goto error;
+	}
+
+
+	// Delete existing file, create new empty one, write length and cbor data
+	iret = ts_file_delete(FW_RULES_FILE);
+	iret =  ts_file_create(FW_RULES_FILE);
+	if (TsStatusOk != iret) {
+		ts_status_trace( "ts_firewall can't create a firewall rules file\n" );
+		goto error;
+	}
+
+	iret =  ts_file_open(&handle, FW_RULES_FILE, TS_FILE_OPEN_FOR_WRITE);
+	if (TsStatusOk != iret) {
+		ts_status_trace( "ts_firewall can't open a firewall rules file\n" );
+		goto error;
+	}
+
+	// Write the size then the buffer.
+	iret = ts_file_write(&handle, &buffer_size, sizeof(buffer_size));
+	iret1 = ts_file_write(&handle, cbor_Buffer, buffer_size);
+    if (TsStatusOk != iret || TsStatusOk != iret1) {
+		ts_status_trace( "ts_firewall can't write a firewall rules file\n" );
+		ts_file_close(&handle);
+		goto error;
+    }
+	ts_status_trace( "ts_firewall rules saved SUCCESS\n" );
+
+    ts_file_close(&handle);
+error:
+	return TsStatusOk;
+}
+
+static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
+	  ts_status_trace( "ts_firewall restoring rules\n" );
+
+	  // Create the directory for saving firewall rules - it may already be present
+	  TsStatus_t iret = TsStatusOk;
+	  ts_file_handle handle;
+	  uint32_t actualRead, buffer_size;
+	  uint8_t readbuf[sizeof(FW_STORAGE_VERSION)];
+
+	  ts_status_trace( "ts_firewall trying to restoring rules\n" );
+
+	  // Change to directory where the FW rules are stored
+	  iret = ts_file_directory_default_set(FW_DIRECTORY);
+	  if (TsStatusOk != iret) {
+		  ts_status_trace( "ts_firewall can't change directory - no rules saved\n" );
+		  goto error;
+	  }
+
+		// Read the version string file and see if it matches
+		iret =  ts_file_open(&handle, FW_VERSION_FILE, TS_FILE_OPEN_FOR_READ);
+		if (TsStatusOk != iret) {
+			ts_status_trace( "ts_firewall can't open version file\n" );
+			goto error;
+		}
+
+		iret = ts_file_read(&handle,readbuf, sizeof(FW_STORAGE_VERSION), &actualRead);
+		ts_file_close(&handle);
+
+		if (TsStatusOk != iret || actualRead!=sizeof(FW_STORAGE_VERSION)) {
+			ts_status_trace( "ts_firewall can't read version file or bad read\n" );
+			goto error;
+		}
+
+
+		// Check that the version matches - cant continue of rules not written by compatible code
+		if (strncmp(readbuf, FW_STORAGE_VERSION, sizeof(FW_STORAGE_VERSION))!=0) {
+			ts_status_trace( "ts_firewall version mismatch cant read fw persisntent rulesn" );
+			goto error;
+		}
+		// Open the rules file
+		// Convert CBOR to  a message
+		iret =  ts_file_open(&handle, FW_RULES_FILE, TS_FILE_OPEN_FOR_READ);
+		if (TsStatusOk != iret) {
+			ts_status_trace( "ts_firewall can't open a firewall rules file\n" );
+			goto error;
+		}
+
+		// Read the size then the buffer.
+		iret = ts_file_read(&handle, &buffer_size, sizeof(buffer_size), &actualRead);
+	    if (TsStatusOk != iret || actualRead!=sizeof(buffer_size) ) {
+			ts_status_trace( "ts_firewall can't read of fw rules file buffer  length\n" );
+			ts_file_close(&handle);
+			goto error;
+	    }
+	    // Read the actual size of the cbor message into the buffer
+		iret = ts_file_read(&handle, cbor_Buffer, buffer_size, &actualRead);
+
+	    if (TsStatusOk != iret || actualRead!=buffer_size) {
+			ts_status_trace( "ts_firewall can't read rules back in\n" );
+		    ts_file_close(&handle);
+			goto error;
+	    }
+	    ts_file_close(&handle);
+
+	    // We have the cbor rules. Convert CBOR saved rilesto a message send to firewall handler
+
+	    TsMessageRef_t message;
+		ts_message_create( &message );
+		iret = ts_message_decode( message, TsEncoderTsCbor, cbor_Buffer, buffer_size );
+	    if (TsStatusOk != iret ) {
+			ts_status_trace( "ts_firewall cant decode cbor FW rulesn" );
+			ts_message_destroy(message);
+			goto error;
+	    }
+
+	    //Send to FW processor
+		iret = ts_firewall_handle( firewallPtr, message);
+	    if (TsStatusOk != iret ) {
+    		ts_status_trace( "ts_firewall rules restored BAD ***\n" );
+	    }
+	    else {
+    		ts_status_trace( "ts_firewall rules restored SUCCESS ***\n" );
+	    }
+		ts_message_destroy(message);
+
+	    ts_file_close(&handle);
+
+	error:
+	  return iret;
+  }
+
+#ifdef WANT_TEST
+int fw_test() {
+
+	TsStatus_t status;
+	ts_status_set_level( TsStatusLevelTrace );
+
+
+
+
+	// create new firewall
+	TsFirewallRef_t firewall;
+	//ts_status_debug( "test_firewall: create firewall, %s\n", ts_status_string( ts_firewall_create( &firewall , NULL ) ) );
+
+#if 0	// test simple configuration setting
+	char * xmessage =
+		"{\"transactionid\":\"00000000-0000-0000-0000-000000000001\","
+		"\"kind\":\"ts.event.firewall\","
+		"\"action\":\"set\","
+		"\"fields\":{"
+		"\"configuration\":{"
+			"\"enabled\":true,"
+			"\"default_domains\":[\"google.com\",\"verizon.com\",\"amazon.com\"],"
+			"\"default_rules\":[{\"sense\":\"outbound\",\"action\":\"drop\",\"destination\":{\"address\":\"35.194.94.155\"}},"
+				"{\"sense\":\"outbound\",\"action\":\"drop\",\"destination\":{\"address\":\"35.194.94.156\"}}]"
+		"}}}";
+			"}}";
+#endif
+
+
+
+    TsMessageRef_t rejectMessage, whitelistMessage, source;
+	//ts_message_create(&whitelistMessage);
+	ts_message_create(&source);
+	ts_message_set_string(source, "kind", "ts.event.firewall");
+	ts_message_set_string(source, "action", "set");
+    //_mf_save( source);
+    //_mf_restore();
+	//ts_handle( firewall, whitelistMessage );
+	return 0;
+#if 0
+	// test decoding to message from json
+	TsMessageRef_t from_json;
+	ts_status_debug( "test_firewall: create message from_json, %s\n", ts_status_string( ts_message_create( &from_json ) ) );
+	ts_status_debug( "test_firewall: decode json, %s\n", ts_status_string( ts_message_decode( from_json, TsEncoderJson, (uint8_t*)xmessage, strlen(xmessage) ) ) );
+	ts_status_debug( "test_firewall: encode debug, %s\n", ts_status_string( ts_message_encode( from_json, TsEncoderDebug, NULL, 0 ) ) );
+
+	// test encoding to ts-cbor from message
+	uint8_t buffer[ 2048 ];
+	size_t buffer_size = sizeof( buffer );
+	ts_status_debug( "test_firewall: encode ts-cbor, %s\n", ts_status_string( ts_message_encode( from_json, TsEncoderTsCbor, buffer, &buffer_size ) ) );
+	for( int i = 0; i < buffer_size; i++ ) {
+		ts_platform_printf( "%02x ", buffer[i] );
+	}
+	ts_platform_printf( "\n" );
+	ts_status_debug( "test_firewall: destroy from_json, %s\n", ts_status_string( ts_message_destroy( from_json ) ) );
+
+	// test decoding from ts-cbor to message
+	TsMessageRef_t from_cbor;
+	ts_status_debug( "test_firewall: create new message from_cbor, %s\n", ts_status_string( ts_message_create( &from_cbor ) ) );
+	ts_status_debug( "test_firewall: decode ts-cbor, %s\n", ts_status_string( ts_message_decode( from_cbor, TsEncoderTsCbor, buffer, buffer_size ) ) );
+	ts_status_debug( "test_firewall: encode debug, %s\n", ts_status_string( ts_message_encode( from_cbor, TsEncoderDebug, NULL, 0 ) ) );
+	ts_status_debug( "test_firewall: destroy from_cbor, %s\n", ts_status_string( ts_message_destroy( from_cbor ) ) );
+
+	// test firewall handler, set
+	TsMessageRef_t message;
+	ts_status_debug( "test_firewall: create firewall message, %s\n", ts_status_string( ts_message_create( &message ) ) );
+	ts_status_debug( "test_firewall: decode json, %s\n", ts_status_string( ts_message_decode( message, TsEncoderJson, (uint8_t*)xmessage, strlen(xmessage) ) ) );
+	ts_status_debug( "test_firewall: handle set firewall message, %s\n", ts_status_string( ts_firewall_handle( firewall, message ) ) );
+	ts_status_debug( "test_firewall: destroy firewall message, %s\n", ts_status_string( ts_message_destroy( message ) ) );
+
+	// test firewall handler, get
+	ts_status_debug( "test_firewall: create firewall message, %s\n", ts_status_string( ts_message_create( &message ) ) );
+	ts_status_debug( "test_firewall: decode json, %s\n", ts_status_string( ts_message_decode( message, TsEncoderJson, (uint8_t*)ymessage, strlen(ymessage) ) ) );
+	ts_status_debug( "test_firewall: handle get firewall message, %s\n", ts_status_string( ts_firewall_handle( firewall, message ) ) );
+	ts_status_debug( "test_firewall: result, %s\n", ts_status_string( ts_message_encode( message, TsEncoderDebug, NULL, 0 ) ) );
+	ts_status_debug( "test_firewall: destroy firewall message, %s\n", ts_status_string( ts_message_destroy( message ) ) );
+
+
+	// clean up
+	ts_status_debug( "test_firewall: destroy firewall, %s\n", ts_status_string( ts_firewall_destroy( firewall ) ) );
+#endif
+	}
+#endif
+
+
+#endif
