@@ -37,6 +37,7 @@ static TsStatus_t _mf_delete( char * sense, int id );
 static TsStatus_t _mf_save( TsMessageRef_t);
 static TsStatus_t _mf_restore(TsFirewallRef_t );
 
+
 static TsStatus_t _ts_refresh_array( TsMessageRef_t * );
 
 static void _ts_make_rejection_alert( TsMessageRef_t *, TsMessageRef_t *, TsMessageRef_t *, int, char *, PMFIREWALL_DecisionInfo);
@@ -62,6 +63,7 @@ static MFIREWALL_RuleEntry _outbound[ TS_FIREWALL_MAX_RULES ];
 static TsMessageRef_t _statistics;
 static TsMessageRef_t _policy;
 static MFIREWALL_Statistics last_reported_statistics;
+static bool fw_save_state;
 
 static TsFirewallVtable_t ts_firewall_mocana = {
 	.create = ts_create,
@@ -118,6 +120,9 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 		ts_status_alarm("ts_firewall_create: firewall initialize failed\n" );
 		return TsStatusErrorInternalServerError;
 	}
+
+	// We want to save the FW rules afer update
+	fw_save_state = true;
 
 	//MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 	ts_callback_context.alert_callback = alert_callback;
@@ -532,10 +537,12 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 					// set or update a rule or domain
 					ts_status_debug("ts_firewall_nano: delegate to set handler\n" );
 					status = _ts_handle_set( firewall, fields );
-					// If it was set ok, the save the rules so they are persistent
+					// If it was set ok, the save the rules so they are persistent (unless being restored)
 					if (status == TsStatusOk)  {
-						ts_status_trace( "Saving firewall rules\n" );
-						status = _mf_save(message);
+						if (fw_save_state)
+						   ts_status_trace( "Saving firewall rules {n" );
+						   status = _mf_save(message);
+					}
 					}
 
 				} else if( strcmp( action, "update" ) == 0 ) {
@@ -1474,6 +1481,7 @@ error:
 	return TsStatusOk;
 }
 
+
 static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 	  ts_status_trace( "ts_firewall restoring rules\n" );
 
@@ -1550,6 +1558,8 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 	    }
 
 	    //Send to FW processor
+	    // Tell the message handler it doesn't need to save these rules.
+		fw_save_state = false;
 		iret = ts_firewall_handle( firewallPtr, message);
 	    if (TsStatusOk != iret ) {
     		ts_status_trace( "ts_firewall rules restored BAD ***\n" );
@@ -1557,6 +1567,8 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 	    else {
     		ts_status_trace( "ts_firewall rules restored SUCCESS ***\n" );
 	    }
+		fw_save_state = true;
+
 		ts_message_destroy(message);
 
 	    ts_file_close(&handle);
