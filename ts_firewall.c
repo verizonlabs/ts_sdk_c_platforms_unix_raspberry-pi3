@@ -543,7 +543,6 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 						   ts_status_trace( "Saving firewall rules {n" );
 						   status = _mf_save(message);
 					}
-					}
 
 				} else if( strcmp( action, "update" ) == 0 ) {
 
