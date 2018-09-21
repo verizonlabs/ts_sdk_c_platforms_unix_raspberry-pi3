@@ -533,7 +533,7 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 					ts_status_debug("ts_firewall_nano: delegate to set handler\n" );
 					status = _ts_handle_set( firewall, fields );
 					// If it was set ok, the save the rules so they are persistent
-					if (status == OK)  {
+					if (status == TsStatusOk)  {
 						ts_status_trace( "Saving firewall rules\n" );
 						status = _mf_save(message);
 					}
