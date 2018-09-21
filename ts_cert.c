@@ -4,13 +4,25 @@
 #include "ts_platform.h"
 #include "ts_util.h"
 #include "ts_file.h"
+#include "ts_log.h"
+#include "ts_scep.h"
+
+#define OP_CERT_PATH "/usr/lib/thingspace/"
+#define OP_CERT_FILE "opcert.pem"
 
 extern bool cert;
 
+TsStatus_t enroll(TsScepConfigRef_t *pConfig);
+TsLogConfigRef_t log_g = NULL;
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
 static TsStatus_t _ts_handle_get( TsMessageRef_t fields );
 static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t fields );
+static TsStatus_t _ts_set_log( TsLogConfigRef_t log );
 
+#if 1
+static TsStatus_t _log_scep( TsLogLevel_t level, char *message );
+#define SCEP_LOG(level, ...) {char log_string_scep[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string_scep, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log_scep(level, log_string_scep);}
+#endif
 /**
  * Create a scep configuration object.
  * @param scepconfig
@@ -98,6 +110,7 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 					ts_status_debug(
 							"ts_cert_handle: save the scepconfig structure\n");
 					status = ts_scepconfig_save(scepconfig, "/var/lib/thingspace/","scepconfig");
+					//enroll(scepconfig);
 					return status;
 
 				} else if (strcmp(action, "get") == 0) {
@@ -129,6 +142,24 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 		status = TsStatusErrorBadRequest;
 	}
 	return status;
+}
+
+TsStatus_t enroll(TsScepConfigRef_t *pConfig)
+{
+
+        // SCEP
+        ts_scep_initialize();
+//	scpe_revoke, scep_crl, scep_publishcrl} scepOpType;
+        ts_scep_enroll(pConfig, scep_ca);
+        ts_scep_enroll(pConfig, scep_renew);
+        ts_scep_enroll(pConfig, scep_rekey);
+
+
+// OPS Available (2nd param) scep_ops {scep_enroll, scep_renew, scep_rekey, 
+// scep_ca, scep_cacertchain, scep_cacaps, scpe_revoke, 
+// scep_crl, scep_publishcrl} scepOpType;
+
+//        ts_scep_assert(0);
 }
 
 // Loads a crypto object into memory from a files. Sizes the file and malloc needed memory
@@ -180,9 +211,6 @@ static TsStatus_t loadFileIntoRam(char* directory, char* file_name, uint8_t** bu
 
 TsStatus_t ts_cert_make_update( TsMessageRef_t *new ) {
 
-#if 1
-#define OP_CERT_PATH "/usr/lib/thingspace/"
-#define OP_CERT_FILE "opcert.pem"
 	char *opcert;
 	ts_file_handle handle;
 	TsStatus_t iret = TsStatusOk;
@@ -194,7 +222,6 @@ TsStatus_t ts_cert_make_update( TsMessageRef_t *new ) {
 		ts_status_debug("simple: failed to read CA Cert file %s\n", ts_status_string(iret));
 		ts_platform_assert(0);
 	}
-#endif
 	ts_status_trace("ts_cert_make_update");
 	TsStatus_t status = ts_message_create(new);
 	if (status != TsStatusOk) {
@@ -321,7 +348,8 @@ TsStatus_t ts_certrewoke_handle( TsMessageRef_t fields ) {
 }
 
 static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t fields ) {
-	ts_status_debug("_ts_handle_set: setting scepconfig PUSHPENDRAS\n");
+	ts_status_debug("_ts_handle_set: setting scepconfig\n");
+	SCEP_LOG(TsLogLevelAlert, "Scep Config is set\n");
 	TsMessageRef_t object;
 	if( ts_message_get_message( fields, "credential", &object ) == TsStatusOk ) {
 		ts_status_debug("_ts_handle_set: getting credential\n");
@@ -790,3 +818,18 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 
   }
 
+#if 1
+static TsStatus_t _log_scep( TsLogLevel_t level, char *message ) {
+	if ( log_g == NULL ) {
+		return TsStatusErrorPreconditionFailed;
+	}
+
+	return ts_log( log_g, level, TsCategoryCredential, message );
+}
+#endif
+
+//static TsStatus_t _ts_set_log( TsLogConfigRef_t log ) {
+TsStatus_t ts_scep_set_log( TsLogConfigRef_t log ) {
+	log_g = log;
+	return TsStatusOk;
+}
