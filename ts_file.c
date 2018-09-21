@@ -403,6 +403,7 @@ exit:
      {
          ret = ts_map_error(status);
      }
+     fsync((int)handle_ptr->data[0]);
  	return ret;
 
  }
@@ -497,6 +498,7 @@ exit:
 
       status = write((int)handle_ptr->data[0], sbuffer, strlen(sbuffer));
       //status = write((int)handle_ptr->data[0], &eol, 1);
+      fsync((int)handle_ptr->data[0]);
 
       if(-1 == status)
       {
