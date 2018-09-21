@@ -1,5 +1,5 @@
 // Copyright (C) 2017, 2018 Verizon, Inc. All rights reserved.
-#if !defined(X_DO_NOT_COMPILE_YET)
+#if defined(TS_FIREWALL_CUSTOM)
 #include <stdio.h>
 #include <string.h>
 #include "wall/mfw_internal.h"
@@ -27,7 +27,7 @@ static TsStatus_t _ts_handle_get(TsFirewallRef_t, TsMessageRef_t);
 static TsStatus_t _ts_handle_delete(TsFirewallRef_t, TsMessageRef_t);
 
 static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t );
-static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t, unsigned long* );
+static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t, unsigned int* );
 static TsStatus_t _mf_set_enabled( TsFirewallRef_t );
 static TsStatus_t _mf_set_default_policy( TsMessageRef_t policy );
 static TsStatus_t _mf_set_default_rules( TsFirewallRef_t );
@@ -89,12 +89,13 @@ static TsCallbackContext_t ts_callback_context = {
 	.log = NULL,
 };
 
-static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo);
+static void _ts_decision_callback (void *context, PMFIREWALL_DecisionInfo pDecisionInfo);
 
 //hardcode for now
 #define STATISTICS_REPORTING_INTERVAL 10000
 #define xTEST_CONFIG_WALL
-#define GENERATE_TEST_EVENTS
+#define xGENERATE_TEST_EVENTS
+#define xTEST_DOMAIN_FILTER
 
 /**
  * Allocate and initialize a new firewall object.
@@ -124,7 +125,7 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 	// We want to save the FW rules afer update
 	fw_save_state = true;
 
-	//MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
+	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 	ts_callback_context.alert_callback = alert_callback;
 
 	// initialize firewall object
@@ -151,14 +152,163 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 
 	(*firewall)->_enabled = FALSE;
 
+#ifdef TEST_DOMAIN_FILTER
+	ts_message_set_string_at( (*firewall)->_domains, 0, "google.com");
+	ts_message_set_string_at( (*firewall)->_domains, 1, "thingspace.verizon.com");
+	_mf_set_custom_domains(*firewall);
+
+	TsMessageRef_t domainMessage;
+	unsigned int index = 0;
+	ts_message_create(&domainMessage);
+	ts_message_set_bool(domainMessage, "domain", true);
+	ts_message_set_string(domainMessage, "action", "drop");
+	ts_message_set_string(domainMessage, "sense", "outbound");
+	_mf_insert_custom_rule(domainMessage, &index);
+	ts_message_destroy(domainMessage);
+	index++;
+
+	(*firewall)->_enabled = true;
+	_mf_set_enabled(*firewall);
+#endif /* TEST_DOMAIN_FILTER */
+
+#ifdef TEST_CONFIG_WALL
+	(*firewall)->_enabled = true;
+	int n_rules = 0;
+	unsigned int inboundIndex = 0;
+	unsigned int outboundIndex = 0;
+
+	_mf_set_enabled(*firewall);
+
+	ts_callback_context.alerts_enabled = true;
+	ts_callback_context.alert_threshold_inbound = 2;
+	ts_callback_context.alert_threshold_outbound = 2;
+
+	TsMessageRef_t rejectMessage, whitelistMessage, source;
+
+	ts_message_create(&whitelistMessage);
+	ts_message_create(&source);
+	ts_message_set_string(source, "address", "63.98.10.34");
+	ts_message_set_string(source, "netmask", "255.255.255.255");
+	ts_message_set_string(source, "port", "8883");
+	ts_message_set_message(whitelistMessage, "destination", source);
+	ts_message_set_string(whitelistMessage, "action", "accept");
+	ts_message_set_string(whitelistMessage, "sense", "outbound");
+	ts_message_set_string(whitelistMessage, "protocol", "tcp");
+	_mf_insert_custom_rule(whitelistMessage, &outboundIndex);
+	ts_status_debug("outbound_index:%d\n", (int)outboundIndex);
+	outboundIndex++;
+
+	ts_message_create(&whitelistMessage);
+	ts_message_create(&source);
+	ts_message_set_string(source, "address", "63.98.10.34");
+	ts_message_set_string(source, "netmask", "255.255.255.255");
+	ts_message_set_string(source, "port", "8883");
+	ts_message_set_message(whitelistMessage, "source", source);
+	ts_message_set_string(whitelistMessage, "action", "accept");
+	ts_message_set_string(whitelistMessage, "sense", "inbound");
+	ts_message_set_string(whitelistMessage, "protocol", "tcp");
+	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
+	ts_status_debug("outbound_index:%d\n", (int)inboundIndex);
+	inboundIndex++;
+
+
+	ts_message_create(&whitelistMessage);
+	ts_message_create(&source);
+	ts_message_set_string(source, "address", "192.168.1.206");
+	ts_message_set_string(source, "netmask", "255.255.255.255");
+	ts_message_set_message(whitelistMessage, "source", source);
+	ts_message_set_string(whitelistMessage, "action", "accept");
+	ts_message_set_string(whitelistMessage, "sense", "inbound");
+	ts_message_set_string(whitelistMessage, "protocol", "icmp");
+	_mf_insert_custom_rule(whitelistMessage, &inboundIndex);
+	inboundIndex++;
+
+	ts_message_create(&whitelistMessage);
+	ts_message_create(&source);
+	ts_message_set_string(source, "address", "192.168.1.206");
+	ts_message_set_string(source, "netmask", "255.255.255.255");
+	ts_message_set_message(whitelistMessage, "destination", source);
+	ts_message_set_string(whitelistMessage, "action", "accept");
+	ts_message_set_string(whitelistMessage, "sense", "outbound");
+	ts_message_set_string(whitelistMessage, "protocol", "icmp");
+	_mf_insert_custom_rule(whitelistMessage, &outboundIndex);
+	outboundIndex++;
+
+
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "outbound");
+	ts_message_set_string(rejectMessage, "protocol", "tcp");
+	_mf_insert_custom_rule(rejectMessage, &outboundIndex);
+	ts_message_destroy(rejectMessage);
+	outboundIndex++;
+
+
+
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "outbound");
+	ts_message_set_string(rejectMessage, "protocol", "udp");
+	ts_message_destroy(rejectMessage);
+	_mf_insert_custom_rule(rejectMessage, &outboundIndex);
+	outboundIndex++;
+
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "outbound");
+	ts_message_set_string(rejectMessage, "protocol", "icmp");
+	ts_message_destroy(rejectMessage);
+	_mf_insert_custom_rule(rejectMessage, &outboundIndex);
+	outboundIndex++;
+
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "inbound");
+	ts_message_set_string(rejectMessage, "protocol", "tcp");
+	ts_message_destroy(rejectMessage);
+	_mf_insert_custom_rule(rejectMessage, &inboundIndex);
+	inboundIndex++;
+
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "inbound");
+	ts_message_set_string(rejectMessage, "protocol", "udp");
+	ts_message_destroy(rejectMessage);
+	_mf_insert_custom_rule(rejectMessage, &inboundIndex);
+	inboundIndex++;
+
+
+
+	ts_message_create(&rejectMessage);
+	ts_message_set_string(rejectMessage, "action", "drop");
+	ts_message_set_string(rejectMessage, "sense", "inbound");
+	ts_message_set_string(rejectMessage, "protocol", "icmp");
+	ts_message_destroy(rejectMessage);
+	_mf_insert_custom_rule(rejectMessage, &inboundIndex);
+	inboundIndex++;
+
+
+	n_rules++;
+
+
+	ts_status_debug("done inserting firewall rules\n");
+
+	ts_message_destroy(rejectMessage);
+
+	ts_message_destroy(whitelistMessage);
+
+	FIREWALL_LOG(TsLogLevelInfo, "Test config firewall rules installed; number of rules = %d\n", n_rules);
+#endif // TEST_CONFIG
+
 	// See if there are persistent firewall rules to restore - ignore status
 	// It's not fatal if no rules to restore
-        _mf_restore(*firewall);
+    _mf_restore(*firewall);
 
 	return status;
 }
 
-static void _ts_decision_callback (TsCallbackContext_t *context, PMFIREWALL_DecisionInfo pDecisionInfo) {
+static void _ts_decision_callback (void *contextArg, PMFIREWALL_DecisionInfo pDecisionInfo) {
+	TsCallbackContext_t *context = (TsCallbackContext_t *)contextArg;
 	if (pDecisionInfo->action == MFIREWALL_ACTION_DROP) {
 		FIREWALL_LOG(TsLogLevelAlert, "Packet rejected, sense = %s\n", (pDecisionInfo->ruleListIndex == MFIREWALL_RULE_LIST_INBOUND ? "inbound" : "outbound"));
 		switch(pDecisionInfo->ruleListIndex) {
@@ -256,7 +406,7 @@ static void _ts_make_rejection_alert( TsMessageRef_t *alert, TsMessageRef_t *sou
 		break;
 	}
 	if (protocol != NULL) {
-		ts_message_set_string( fields, "protocol", protocol);
+		ts_message_set_string( fields, "protocol", (char *)protocol);
 	}
 
 	ts_message_set_string( *source, "address", _ip_to_string( mfw_ip_header->sourceAddress, tmp, 25) );
@@ -407,7 +557,7 @@ static TsStatus_t ts_handle(TsFirewallRef_t firewall, TsMessageRef_t message ) {
 					// set or update a rule or domain
 					ts_status_debug("ts_firewall_nano: delegate to set handler\n" );
 					status = _ts_handle_set( firewall, fields );
-					// If it was set ok, the save the rules so they are persistent (unless being restored)
+					// If it was set ok, then save the rules so they are persistent (unless being restored)
 					if (status == TsStatusOk)  {
 						if (fw_save_state)
 						   ts_status_trace( "Saving firewall rules {n" );
@@ -465,8 +615,8 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 	TsMessageRef_t contents;
 	TsMessageRef_t object;
 	TsMessageRef_t rejectMessage;
-	unsigned long inbound_index = 0;
-	unsigned long outbound_index = 0;
+	unsigned int inbound_index = 0;
+	unsigned int outbound_index = 0;
 	char* string = NULL;
 	if( ts_message_get_message( fields, "firewall", &object ) == TsStatusOk ) {
 
@@ -512,13 +662,18 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
 				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
 			}
+			//  compensate for platform/provider typo
+			if( ts_message_get_int( contents, "alert_threshold_outboun", &(ts_callback_context.alert_threshold_outbound) ) == TsStatusOk ) {
+				FIREWALL_LOG(TsLogLevelInfo, "Outbound alert threshold set to %d\n", ts_callback_context.alert_threshold_outbound);
+				ts_status_info( "_ts_firewall_set: alert_threshold_outbound, %d\n", ts_callback_context.alert_threshold_outbound );
+			}
 		}
 
 		// update rules
 		// note that the array can only be 15 items long (limitation of ts_message)
 		if( ts_message_get_array( object, "rules", &contents ) == TsStatusOk ) {
 
-			ts_status_debug( "ts_firewall_nano: set rules\n" );
+			ts_status_debug( "ts_firewall: set rules\n" );
 			size_t length;
 			ts_message_get_size( contents, &length );
 			ts_status_debug( "length is: %d\n", length );
@@ -526,7 +681,7 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 
 				// set by id, or add to back w/o id ("set" or "update")
 				TsMessageRef_t current = contents->value._xfields[ i ];
-				unsigned long id = 0;
+				unsigned int id = 0;
 				int id_int = 0;
 
 				if( ts_message_get_int( current, "id", &id_int ) == TsStatusOk ) {
@@ -565,7 +720,7 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 
 				// set by id, or add to back w/o id ("set" or "update")
 				TsMessageRef_t current = contents->value._xfields[ i ];
-				unsigned long id = 0;
+				unsigned int id = 0;
 				int id_int = 0;
 
 				if( ts_message_get_int( current, "id", &id_int ) == TsStatusOk ) {
@@ -769,6 +924,8 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_PORT ) ||
 			( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DST_MAC ) ) {
 		match = "destination";
+	} else if( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DOMAIN_FILTER ) {
+		match = "domain";
 	}
 	ts_message_set_string( ts_rule, "match", match );
 
@@ -810,11 +967,21 @@ static TsMessageRef_t _mf_to_ts_rule( char * sense, int id, MFIREWALL_RuleEntry 
 	case MFIREWALL_RULE_IF_WIFI:
 		interface = "wifi";
 		break;
+	case MFIREWALL_RULE_IF_PPP:
+		interface = "ppp";
+		break;
+	case MFIREWALL_RULE_IF_CELL:
+		interface = "cell";
+		break;
 	default:
 		interface = "unknown";
 		break;
 	}
 	ts_message_set_string( ts_rule, "interface", interface );
+
+	if ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_DOMAIN_FILTER ) {
+		ts_message_set_bool( ts_rule, "domain", true );
+	}
 
 	// convert source
 	if( ( mf_rule.matchFlags & MFIREWALL_RULE_MATCH_SRC_IP_ADDR ) ||
@@ -854,12 +1021,20 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 
 	ubyte matchFlags = 0x00;
 	char * string;
+	bool match_domains;
 
 	// convert action
 	mf_rule.action = MFIREWALL_ACTION_ACCEPT;
 	if( ts_message_get_string( ts_rule, "action", &string ) == TsStatusOk ) {
 		if( strcmp( string, "drop" ) == 0 ) {
 			mf_rule.action = MFIREWALL_ACTION_DROP;
+		}
+	}
+
+	// convert domain-matching flag
+	if ( ts_message_get_bool( ts_rule, "domain", &match_domains ) == TsStatusOk ) {
+		if ( match_domains ) {
+			matchFlags = matchFlags | MFIREWALL_RULE_MATCH_DOMAIN_FILTER;
 		}
 	}
 
@@ -884,6 +1059,10 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_LAN;
 		} else if( strcmp( string, "wifi" ) == 0 ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_WIFI;
+		} else if ( strcmp( string, "ppp" )  == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_PPP;
+		} else if( strcmp( string, "cell" ) == 0 ) {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_CELL;
 		}
 	}
 
@@ -1145,7 +1324,7 @@ static TsStatus_t _mf_handle_get_eval( TsFirewallRef_t firewall ) {
 	return TsStatusOk;
 }
 
-static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t rule, unsigned long* id ) {
+static TsStatus_t _mf_insert_custom_rule( TsMessageRef_t rule, unsigned int* id ) {
 
 	MFIREWALL_RuleEntry mf_rule = _ts_to_mf_rule( rule );
 	MFIREWALL_RuleListIndex rli = MFIREWALL_RULE_LIST_INBOUND;
@@ -1179,7 +1358,7 @@ static TsStatus_t _mf_set_custom_domains( TsFirewallRef_t firewall ) {
 			break;
 		}
 
-		snprintf( domains + index, domains_size - index, "%s", domain );
+		snprintf( (char *)(domains + index), domains_size - index, "%s", domain );
 		index = index + domain_size + 1;
 	}
 
