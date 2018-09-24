@@ -1,0 +1,9 @@
+/dev/ttyAMA0
+921600
+connect "/usr/sbin/chat -v -f /etc/ppp/peers/verizon-chat"
+noauth
+defaultroute
+usepeerdns
+local
+debug
+updetach
