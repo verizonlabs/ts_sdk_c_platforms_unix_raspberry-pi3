@@ -381,7 +381,7 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 		if( ts_message_get_int( object, "keySize", &(scepconfig->_keySize)) == TsStatusOk ) {
 			ts_status_debug("_ts_handle_set: keySize = %d\n", scepconfig->_keySize);
 		}
-		if (ts_message_get_int(object, "certEnrollmentType", &(scepconfig->_certEnrollmentType))
+		if (ts_message_get_string(object, "certEnrollmentType", &(scepconfig->_certEnrollmentType))
 				== TsStatusOk) {
 			ts_status_debug("_ts_handle_set: certEnrollmentType = %s\n", scepconfig->_certEnrollmentType);
 		}
@@ -470,14 +470,14 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 		goto error;
 		}
 
-	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_certExpiresAfter);
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_certExpiresAfter);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
 	 	if (iret!=TsStatusOk) {
 			ts_status_debug("ts_scepconfig_save: Error in writing certExpiresAfter to file\n");
 	 		goto error;
 		}
 
-	 	snprintf(text_line, sizeof(text_line), "%d\n",pConfig->_certEnrollmentType);
+	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_certEnrollmentType);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
 	 	if (iret!=TsStatusOk) {
 			ts_status_debug("ts_scepconfig_save: Error in writing certEnrollment to file\n");
@@ -631,12 +631,12 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	// These are all used to whold string in the passed struct ptr - the are returned via ptr so need statics
 	 	static char bfr_encryptionAlgorithm[100];
 	 	static char bfr_hashFunction[16];
-	 	static char bfr_keyUsage[10];
+	 	static char bfr_keyUsage[20];
 	 	static char bfr_keyAlgorithm[100];
 	 	static char bfr_keyAlgorithmStrength[10];
 	 	static char bfr_urlBuffer[100];
-	 	static char bfr_challengeUsername[20];
-		static char bfr_challengePassword[20];
+	 	static char bfr_challengeUsername[30];
+		static char bfr_challengePassword[30];
 		static char bfr_caCertFingerprint[100];
 		static char bfr_certSubject[100];
 		static char bfr_getCaCertUrl[100];
@@ -673,31 +673,32 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_enabled = (strcmp(text_line,"1")==0)?true:false;
+	 	pConfig->_enabled = (strcmp(text_line,"1\n")==0)?true:false;
 
 	 	// Generate private key
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1")==0)?true:false;
+	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1\n")==0)?true:false;
 
 	 	// _certExpiresAfter
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_certExpiresAfter);
+	    sscanf( text_line, "%d", &(pConfig->_certExpiresAfter));
 
 	    // _certEnrollmentType
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_certEnrollmentType);
+	 	pConfig->_certEnrollmentType = bfr_encryptionAlgorithm;
+	 	strncpy(bfr_encryptionAlgorithm, text_line,sizeof(bfr_encryptionAlgorithm));
 
         // _numDaysBeforeAutoRenew
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_numDaysBeforeAutoRenew);
+	    sscanf( text_line, "%d", &(pConfig->_numDaysBeforeAutoRenew));
 
 	    // _encryptionAlgorithm
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -718,19 +719,19 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_retries);
+	    sscanf( text_line, "%d", &(pConfig->_retries));
 
 	    // _retryDelayInSeconds
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d",pConfig->_retryDelayInSeconds);
+	    sscanf( text_line, "%d", &(pConfig->_retryDelayInSeconds));
 
 	    // _keySize
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_keySize);
+	    sscanf( text_line, "%d", &(pConfig->_keySize));
 
 	    // _keyUsage
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -757,13 +758,13 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_caInstance);
+	    sscanf( text_line, "%d", &(pConfig->_caInstance));
 
 	 	// _challengeType
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_challengeType);
+	    sscanf( text_line, "%d", &(pConfig->_challengeType));
 
 	    // _challengeUsername
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -808,7 +809,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", pConfig->_getCertInitialUrl);
+	    sscanf( text_line, "%d", &(pConfig->_getCertInitialUrl));
 
 
 	 	error:
