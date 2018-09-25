@@ -4,7 +4,7 @@
 #include <string.h>
 #include "wall/mfw_internal.h"
 #include "wall/mfirewall.h"
-
+#include <stdlib.h>
 #include "ts_platform.h"
 #include "ts_firewall.h"
 #include "ts_status.h"
@@ -609,7 +609,11 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 
 	// refresh local copy of mf rules
 	_mf_handle_get_eval( firewall );
+	
+	//system("/home/pi/uninstall-nanowallk.sh");
 
+	//system("/home/pi/install-nanowallk.sh");
+	
 	// update configuration
 	TsMessageRef_t array;
 	TsMessageRef_t contents;
@@ -619,7 +623,31 @@ static TsStatus_t _ts_handle_set( TsFirewallRef_t firewall, TsMessageRef_t field
 	unsigned int outbound_index = 0;
 	char* string = NULL;
 	if( ts_message_get_message( fields, "firewall", &object ) == TsStatusOk ) {
+		
+	/*Reset the firewall here*/
+	/*if( MFIREWALL_shutdown() != OK ) {
+	ts_status_alarm("ts_firewall_create: firewall initialize failed\n" );
+	return TsStatusErrorInternalServerError;
+	}
+		
+		
+	if( MFIREWALL_initialize() != OK ) {
+	ts_status_alarm("ts_firewall_re create: firewall re-initialize failed\n" );
+	return TsStatusErrorInternalServerError;
+	}*/
+	
+	
+	
+	for(int i=0; i < TS_FIREWALL_MAX_RULES; i++)
+	{
+		_mf_delete("inbound", i);
+		_mf_delete("outbound", i);
+	}
+	
+	MFIREWALL_registerDecisionCallback(&ts_callback_context, _ts_decision_callback);
 
+		/*Done Resetting the firewall - Add the rules fresh here*/
+		
 		if( ts_message_get_message( object, "configuration", &contents ) == TsStatusOk ) {
 
 			// override configuration setting if one or more exist in the message
@@ -1440,12 +1468,12 @@ static TsStatus_t _mf_delete( char * sense, int id ) {
 //#define FW_DIRECTORY "/"
 #define FW_VERSION_FILE "fw_version_file"
 #define FW_RULES_FILE "fw_rules_file"
-static uint8_t cbor_Buffer[2048];
+static uint8_t cbor_Buffer[8192];
 // DO NOT change the length of next string - only the contents.
 #define FW_STORAGE_VERSION "FW-001"
 
 static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
-	ts_status_trace( "ts_firewall saving rules\n" );
+	ts_status_debug( "ts_firewall saving rules\n" );
 
 	// Create the directory for saving firewall rules - it may already be present
   	TsStatus_t iret = TsStatusOk;
@@ -1458,17 +1486,17 @@ static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
 	if (TsStatusOk != iret) {
 		iret = ts_file_directory_create(FW_DIRECTORY);
 		if (TsStatusOk != iret) {
-			ts_status_trace( "ts_firewall Can't create default director\n" );
+			ts_status_debug( "ts_firewall Can't create default director\n" );
 			goto error;
 		}
 
-		ts_status_trace( "ts_firewall Default directory created\n" );
+		ts_status_debug( "ts_firewall Default directory created\n" );
 		goto error;
 	}
 
 	iret = ts_file_directory_default_set(FW_DIRECTORY);
 	if (TsStatusOk != iret) {
-		ts_status_trace( "ts_firewall can't change directory\n" );
+		ts_status_debug( "ts_firewall can't change directory\n" );
 		goto error;
 	}
 
@@ -1477,7 +1505,7 @@ static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
 	iret = ts_file_create(FW_VERSION_FILE);
 	iret =  ts_file_open(&handle, FW_VERSION_FILE, TS_FILE_OPEN_FOR_WRITE);
 	if (TsStatusOk != iret) {
-		ts_status_trace( "ts_firewall can't open version file\n" );
+		ts_status_debug( "ts_firewall can't open version file\n" );
 		goto error;
 	}
 
@@ -1485,7 +1513,7 @@ static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
 	ts_file_close(&handle);
 
 	if (TsStatusOk != iret) {
-		ts_status_trace( "ts_firewall can't write version file\n" );
+		ts_status_debug( "ts_firewall can't write version file\n" );
 		goto error;
 	}
 
@@ -1495,7 +1523,7 @@ static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
 	buffer_size=sizeof(cbor_Buffer);
 	iret = ts_message_encode( dataToSave, TsEncoderTsCbor, cbor_Buffer, &buffer_size );
 	if (TsStatusOk != iret) {
-		ts_status_trace( "ts_firewall can't encode rules to cbor format\n" );
+		ts_status_debug( "ts_firewall can't encode rules to cbor format\n" );
 		goto error;
 	}
 
@@ -1504,13 +1532,13 @@ static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
 	iret = ts_file_delete(FW_RULES_FILE);
 	iret =  ts_file_create(FW_RULES_FILE);
 	if (TsStatusOk != iret) {
-		ts_status_trace( "ts_firewall can't create a firewall rules file\n" );
+		ts_status_debug( "ts_firewall can't create a firewall rules file\n" );
 		goto error;
 	}
 
 	iret =  ts_file_open(&handle, FW_RULES_FILE, TS_FILE_OPEN_FOR_WRITE);
 	if (TsStatusOk != iret) {
-		ts_status_trace( "ts_firewall can't open a firewall rules file\n" );
+		ts_status_debug( "ts_firewall can't open a firewall rules file\n" );
 		goto error;
 	}
 
@@ -1518,11 +1546,11 @@ static TsStatus_t _mf_save( TsMessageRef_t dataToSave) {
 	iret = ts_file_write(&handle, &buffer_size, sizeof(buffer_size));
 	iret1 = ts_file_write(&handle, cbor_Buffer, buffer_size);
     if (TsStatusOk != iret || TsStatusOk != iret1) {
-		ts_status_trace( "ts_firewall can't write a firewall rules file\n" );
+		ts_status_debug( "ts_firewall can't write a firewall rules file\n" );
 		ts_file_close(&handle);
 		goto error;
     }
-	ts_status_trace( "ts_firewall rules saved SUCCESS\n" );
+	ts_status_debug( "ts_firewall rules saved SUCCESS\n" );
 
     ts_file_close(&handle);
 error:
@@ -1531,7 +1559,7 @@ error:
 
 
 static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
-	  ts_status_trace( "ts_firewall restoring rules\n" );
+	  ts_status_debug( "ts_firewall restoring rules\n" );
 
 	  // Create the directory for saving firewall rules - it may already be present
 	  TsStatus_t iret = TsStatusOk;
@@ -1539,19 +1567,19 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 	  uint32_t actualRead, buffer_size;
 	  uint8_t readbuf[sizeof(FW_STORAGE_VERSION)];
 
-	  ts_status_trace( "ts_firewall trying to restoring rules\n" );
+	  ts_status_debug( "ts_firewall trying to restoring rules\n" );
 
 	  // Change to directory where the FW rules are stored
 	  iret = ts_file_directory_default_set(FW_DIRECTORY);
 	  if (TsStatusOk != iret) {
-		  ts_status_trace( "ts_firewall can't change directory - no rules saved\n" );
+		  ts_status_debug( "ts_firewall can't change directory - no rules saved\n" );
 		  goto error;
 	  }
 
 		// Read the version string file and see if it matches
 		iret =  ts_file_open(&handle, FW_VERSION_FILE, TS_FILE_OPEN_FOR_READ);
 		if (TsStatusOk != iret) {
-			ts_status_trace( "ts_firewall can't open version file\n" );
+			ts_status_debug( "ts_firewall can't open version file\n" );
 			goto error;
 		}
 
@@ -1559,28 +1587,28 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 		ts_file_close(&handle);
 
 		if (TsStatusOk != iret || actualRead!=sizeof(FW_STORAGE_VERSION)) {
-			ts_status_trace( "ts_firewall can't read version file or bad read\n" );
+			ts_status_debug( "ts_firewall can't read version file or bad read\n" );
 			goto error;
 		}
 
 
 		// Check that the version matches - cant continue of rules not written by compatible code
 		if (strncmp(readbuf, FW_STORAGE_VERSION, sizeof(FW_STORAGE_VERSION))!=0) {
-			ts_status_trace( "ts_firewall version mismatch cant read fw persisntent rulesn" );
+			ts_status_debug( "ts_firewall version mismatch cant read fw persisntent rulesn" );
 			goto error;
 		}
 		// Open the rules file
 		// Convert CBOR to  a message
 		iret =  ts_file_open(&handle, FW_RULES_FILE, TS_FILE_OPEN_FOR_READ);
 		if (TsStatusOk != iret) {
-			ts_status_trace( "ts_firewall can't open a firewall rules file\n" );
+			ts_status_debug( "ts_firewall can't open a firewall rules file\n" );
 			goto error;
 		}
 
 		// Read the size then the buffer.
 		iret = ts_file_read(&handle, &buffer_size, sizeof(buffer_size), &actualRead);
 	    if (TsStatusOk != iret || actualRead!=sizeof(buffer_size) ) {
-			ts_status_trace( "ts_firewall can't read of fw rules file buffer  length\n" );
+			ts_status_debug( "ts_firewall can't read of fw rules file buffer  length\n" );
 			ts_file_close(&handle);
 			goto error;
 	    }
@@ -1588,7 +1616,7 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 		iret = ts_file_read(&handle, cbor_Buffer, buffer_size, &actualRead);
 
 	    if (TsStatusOk != iret || actualRead!=buffer_size) {
-			ts_status_trace( "ts_firewall can't read rules back in\n" );
+			ts_status_debug( "ts_firewall can't read rules back in\n" );
 		    ts_file_close(&handle);
 			goto error;
 	    }
@@ -1600,7 +1628,7 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 		ts_message_create( &message );
 		iret = ts_message_decode( message, TsEncoderTsCbor, cbor_Buffer, buffer_size );
 	    if (TsStatusOk != iret ) {
-			ts_status_trace( "ts_firewall cant decode cbor FW rulesn" );
+			ts_status_debug( "ts_firewall cant decode cbor FW rulesn" );
 			ts_message_destroy(message);
 			goto error;
 	    }
@@ -1610,10 +1638,10 @@ static TsStatus_t _mf_restore(TsFirewallRef_t firewallPtr) {
 		fw_save_state = false;
 		iret = ts_firewall_handle( firewallPtr, message);
 	    if (TsStatusOk != iret ) {
-    		ts_status_trace( "ts_firewall rules restored BAD ***\n" );
+    		ts_status_debug( "ts_firewall rules restored BAD ***\n" );
 	    }
 	    else {
-    		ts_status_trace( "ts_firewall rules restored SUCCESS ***\n" );
+    		ts_status_debug( "ts_firewall rules restored SUCCESS ***\n" );
 	    }
 		fw_save_state = true;
 
@@ -1672,7 +1700,7 @@ int fw_test() {
 	ts_status_debug( "test_firewall: encode debug, %s\n", ts_status_string( ts_message_encode( from_json, TsEncoderDebug, NULL, 0 ) ) );
 
 	// test encoding to ts-cbor from message
-	uint8_t buffer[ 2048 ];
+	uint8_t buffer[ 8192 ];
 	size_t buffer_size = sizeof( buffer );
 	ts_status_debug( "test_firewall: encode ts-cbor, %s\n", ts_status_string( ts_message_encode( from_json, TsEncoderTsCbor, buffer, &buffer_size ) ) );
 	for( int i = 0; i < buffer_size; i++ ) {

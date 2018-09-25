@@ -15,7 +15,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
+#include <sys/time.h>
 #if defined(__APPLE__) && defined(__MACH__)
 
 #include <sys/types.h>
@@ -84,7 +84,7 @@ static TsStatus_t ts_create( TsDriverRef_t * driver ) {
 	sock->_driver._spec_mtu = 8192;
 	// TODO - should provide mac address here? probably not
 	// TODO - currently using my own mac-id - need to change this asap.
-	snprintf((char *) ( sock->_driver._spec_id ), TS_DRIVER_MAX_ID_SIZE, "%s", "B827EBA15910" );
+	snprintf((char *) ( sock->_driver._spec_id ), TS_DRIVER_MAX_ID_SIZE, "%s", "363100000000001" );
 	sock->_fd = -1;
 
 	*driver = (TsDriverRef_t) sock;
@@ -250,7 +250,10 @@ static TsStatus_t ts_read( TsDriverRef_t driver, const uint8_t * buffer, size_t 
 
 	// initialize timestamp for read timer budgeting
 	uint64_t timestamp = ts_platform_time();
-
+	fd_set readfds;
+	int rv = 0;
+	struct timeval tv;
+	
 	// limit read to 1MHz call bandwidth
 	// note that this doesnt limit the number of recv calls made below,
 	// just the number of reattempts by the caller,...
@@ -265,39 +268,69 @@ static TsStatus_t ts_read( TsDriverRef_t driver, const uint8_t * buffer, size_t 
 	bool reading = true;
 	ssize_t index = 0;
 	TsStatus_t status = TsStatusOk;
-	do {
+  
+	//add master socket to set
+	//do {
+		tv.tv_sec = 0;
+		tv.tv_usec = 500000;
+		FD_ZERO(&readfds);
+		FD_SET(sock->_fd, &readfds);
+		rv = select(sock->_fd + 1, &readfds, NULL, NULL, &tv);
+		if (rv < 0)
+		{
+			printf("Error in select\r\n");
+		}
+		else if(rv == 0)
+		{
+			printf("Timeout\r\n");
+		}
+		else
+		{
+			if (FD_ISSET(sock->_fd, &readfds))
+			{
+				// read from the socket
+				ssize_t size = recv( sock->_fd, (void *) ( buffer + index ), ( *buffer_size ) - index, flags );
+				if( size < 0 ) {
 
-		// read from the socket
-		ssize_t size = recv( sock->_fd, (void *) ( buffer + index ), ( *buffer_size ) - index, flags );
-		if( size < 0 ) {
+					// recv has indicated either non-block status
+					// or an actual driver issue,...
+					size = 0;
+					reading = false;
 
-			// recv has indicated either non-block status
-			// or an actual driver issue,...
-			size = 0;
-			reading = false;
+					// establish the exit scenario for the caller
+					if( errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR ) {
+						if( index > 0 ) {
+							status = TsStatusOk;
+						} else {
+							// TODO - allow the timer budget to be exhausted before returning?
+							status = TsStatusOkReadPending;
+						}
+					} else if( errno == EPIPE || errno == ECONNRESET ) {
+						status = TsStatusErrorConnectionReset;
+					} else if( errno != 0 ) {
+						ts_status_debug( "ts_driver_read: ignoring error, %d\n", errno );
+						status = TsStatusErrorInternalServerError;
+					}
 
-			// establish the exit scenario for the caller
-			if( errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR ) {
-				if( index > 0 ) {
+				} else if( size == 0 ) {
+
+					// first normal exit condition, non-block io read returns zero bytes
+					reading = false;
 					status = TsStatusOk;
-				} else {
-					// TODO - allow the timer budget to be exhausted before returning?
-					status = TsStatusOkReadPending;
+
+				} 
+
+				index = index + size;
+
+				if( index >= *buffer_size ) {
+					// second normal exit condition, the buffer is full
+					reading = false;
+					status = TsStatusOk;
 				}
-			} else if( errno == EPIPE || errno == ECONNRESET ) {
-				status = TsStatusErrorConnectionReset;
-			} else if( errno != 0 ) {
-				ts_status_debug( "ts_driver_read: ignoring error, %d\n", errno );
-				status = TsStatusErrorInternalServerError;
 			}
-
-		} else if( size == 0 ) {
-
-			// first normal exit condition, non-block io read returns zero bytes
-			reading = false;
-			status = TsStatusOk;
-
-		} else if( ts_platform_time() - timestamp > budget ) {
+		}
+		/* if( ts_platform_time() - timestamp > budget ) 
+		{
 
 			// there is more to read than expected on this attempt,
 			// give back control to caller
@@ -309,17 +342,9 @@ static TsStatus_t ts_read( TsDriverRef_t driver, const uint8_t * buffer, size_t 
 			} else {
 				status = TsStatusOkReadPending;
 			}
-		}
+		} */
 
-		index = index + size;
-
-		if( index >= *buffer_size ) {
-			// second normal exit condition, the buffer is full
-			reading = false;
-			status = TsStatusOk;
-		}
-
-	} while( reading );
+	//} while( reading );
 
 	// update read buffer size and return
 	*buffer_size = (size_t) index;
