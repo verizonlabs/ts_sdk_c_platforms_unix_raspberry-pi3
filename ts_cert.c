@@ -7,11 +7,11 @@
 #include "ts_log.h"
 #include "ts_scep.h"
 
-#define OP_CERT_PATH "/usr/lib/thingspace/"
+#define OP_CERT_PATH "/var/lib/thingspace/certs"
 #define OP_CERT_FILE "opcert.pem"
 
 extern bool cert;
-
+extern bool g_reboot_now;
 TsStatus_t enroll(TsScepConfigRef_t *pConfig);
 TsLogConfigRef_t log_g = NULL;
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
@@ -88,7 +88,7 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 	ts_platform_assert(message != NULL);
 
 	TsStatus_t status;
-
+	g_reboot_now = true;
 	char * kind;
 	status = ts_message_get_string(message, "kind", &kind);
 	if ((status == TsStatusOk) && (strcmp(kind, "ts.event.credential") == 0)) {
@@ -174,11 +174,11 @@ static TsStatus_t loadFileIntoRam(char* directory, char* file_name, uint8_t** bu
 
 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
 
-#if 0
+
 	iret = ts_file_directory_default_set(directory);
 	if (TsStatusOk != iret)
 		goto error;
-#endif
+
 
 	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
 	if (TsStatusOk != iret)
