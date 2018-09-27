@@ -40,6 +40,7 @@ TsStatus_t ts_scepconfig_create(TsScepConfigRef_t *scepconfig, TsStatus_t (*mess
 	*scepconfig = (TsScepConfigRef_t)ts_platform_malloc(sizeof(TsScepConfig_t));
 	(*scepconfig)->_enabled = false;
 	(*scepconfig)->_certExpiresAfter = false;
+	(*scepconfig)->_generateNewPrivateKey = false;  //added
 	(*scepconfig)->_certEnrollmentType = false;
 	(*scepconfig)->_numDaysBeforeAutoRenew = 0;
 	(*scepconfig)->_encryptionAlgorithm = "RSA";
@@ -632,9 +633,11 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	uint8_t* addr;
 	 	char text_line[120];
 	 	// These are all used to whold string in the passed struct ptr - the are returned via ptr so need statics
+		static char bfr_certExpiresAfter[30];
+		static char bfr_certEnrollmentType[30];
 	 	static char bfr_encryptionAlgorithm[100];
 	 	static char bfr_hashFunction[16];
-	 	static char bfr_keyUsage[20];
+	 	static char bfr_keyUsage[30];
 	 	static char bfr_keyAlgorithm[100];
 	 	static char bfr_keyAlgorithmStrength[10];
 	 	static char bfr_urlBuffer[100];
@@ -676,26 +679,27 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_enabled = (strcmp(text_line,"1\n")==0)?true:false;
+	 	pConfig->_enabled = (strcmp(text_line,"1")==0)?true:false;
 
 	 	// Generate private key
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1\n")==0)?true:false;
+	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1")==0)?true:false;
 
 	 	// _certExpiresAfter
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", &(pConfig->_certExpiresAfter));
+	 	pConfig->_certExpiresAfter = bfr_certExpiresAfter;
+	 	strncpy(bfr_certExpiresAfter, text_line,sizeof(bfr_certExpiresAfter));
 
 	    // _certEnrollmentType
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_certEnrollmentType = bfr_encryptionAlgorithm;
-	 	strncpy(bfr_encryptionAlgorithm, text_line,sizeof(bfr_encryptionAlgorithm));
+	 	pConfig->_certEnrollmentType = bfr_certEnrollmentType;
+	 	strncpy(bfr_certEnrollmentType, text_line,sizeof(bfr_certEnrollmentType));
 
         // _numDaysBeforeAutoRenew
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -808,12 +812,17 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	pConfig->_getCaCertUrl = bfr_getCaCertUrl;
 	 	strncpy(bfr_getCaCertUrl, text_line,sizeof(bfr_getCaCertUrl));
 
-	    // _getCertInitialUrl
+	    // _getPkcsRequestUrl
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	    sscanf( text_line, "%d", &(pConfig->_getCertInitialUrl));
+	    sscanf( text_line, "%d", &(pConfig->_getPkcsRequestUrl));
 
+	    // _getCertInitialUrl
+		    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+		 	if (TsStatusOk != iret)
+		 		goto error;
+		    sscanf( text_line, "%d", &(pConfig->_getCertInitialUrl));
 
 	 	error:
 	 	ts_file_close(&handle);
