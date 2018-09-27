@@ -12,6 +12,7 @@
 
 extern bool cert;
 extern bool g_reboot_now;
+extern bool g_useOpCert;
 TsStatus_t enroll(TsScepConfigRef_t *pConfig);
 TsLogConfigRef_t log_g = NULL;
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
@@ -88,7 +89,6 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 	ts_platform_assert(message != NULL);
 
 	TsStatus_t status;
-	g_reboot_now = true;
 	char * kind;
 	status = ts_message_get_string(message, "kind", &kind);
 	if ((status == TsStatusOk) && (strcmp(kind, "ts.event.credential") == 0)) {
@@ -298,6 +298,8 @@ TsStatus_t ts_handle_certack( TsMessageRef_t fields ) {
 		}
 		ts_status_debug("_ts_handle_certack: filed end\n");
 	}
+	g_useOpCert = true;
+	g_reboot_now = true;
 	ts_status_debug("_ts_handle_certack: completed processing\n");
 	return TsStatusOk;
 }
