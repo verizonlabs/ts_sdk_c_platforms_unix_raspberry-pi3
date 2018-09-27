@@ -634,7 +634,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 		static char bfr_certEnrollmentType[30];
 	 	static char bfr_encryptionAlgorithm[100];
 	 	static char bfr_hashFunction[16];
-	 	static char bfr_keyUsage[20];
+	 	static char bfr_keyUsage[30];
 	 	static char bfr_keyAlgorithm[100];
 	 	static char bfr_keyAlgorithmStrength[10];
 	 	static char bfr_urlBuffer[100];
@@ -676,20 +676,20 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_enabled = (strcmp(text_line,"1\n")==0)?true:false;
+	 	pConfig->_enabled = (strcmp(text_line,"1")==0)?true:false;
 
 	 	// Generate private key
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
-	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1\n")==0)?true:false;
+	 	pConfig->_generateNewPrivateKey = (strcmp(text_line,"1")==0)?true:false;
 
 	 	// _certExpiresAfter
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
 	 	pConfig->_certExpiresAfter = bfr_certExpiresAfter;
-	 	strncpy(bfr_encryptionAlgorithm, text_line,sizeof(bfr_certExpiresAfter));
+	 	strncpy(bfr_certExpiresAfter, text_line,sizeof(bfr_certExpiresAfter));
 
 	    // _certEnrollmentType
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));

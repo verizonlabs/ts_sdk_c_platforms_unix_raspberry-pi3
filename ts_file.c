@@ -445,7 +445,10 @@ exit:
 
 		 } while ((c != '\n') && (status==1));
                  // End of string for the returned line
-		 buffer[pos]='\0';
+                 if (pos>0)
+		    buffer[pos-1]='\0'; //get rid of the \n
+		 else
+                    buffer[pos]='\0'; // maybe null?
 	 }
 	 else
          // Bad params
