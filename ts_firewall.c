@@ -52,7 +52,7 @@ static TsStatus_t _log( TsLogLevel_t level, char *message );
 #define FIREWALL_LOG(level, ...) {char log_string[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log(level, log_string);}
 
 // TODO - these should be part of the (custom) firewall object
-#define TS_FIREWALL_MAX_RULES 7
+#define TS_FIREWALL_MAX_RULES 20
 // NOTE - today we're just storing 7 inbound and 7 outbound
 //        this limitation is due to ts_message array size
 //        ts_message.h, TS_MESSAGE_MAX_BRANCHES

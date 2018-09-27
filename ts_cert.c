@@ -7,11 +7,12 @@
 #include "ts_log.h"
 #include "ts_scep.h"
 
-#define OP_CERT_PATH "/usr/lib/thingspace/"
+#define OP_CERT_PATH "/var/lib/thingspace/certs"
 #define OP_CERT_FILE "opcert.pem"
 
 extern bool cert;
-
+extern bool g_reboot_now;
+extern bool g_useOpCert;
 TsStatus_t enroll(TsScepConfigRef_t *pConfig);
 TsLogConfigRef_t log_g = NULL;
 TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
@@ -23,6 +24,7 @@ static TsStatus_t _ts_set_log( TsLogConfigRef_t log );
 static TsStatus_t _log_scep( TsLogLevel_t level, char *message );
 #define SCEP_LOG(level, ...) {char log_string_scep[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string_scep, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log_scep(level, log_string_scep);}
 #endif
+
 /**
  * Create a scep configuration object.
  * @param scepconfig
@@ -88,7 +90,6 @@ TsStatus_t ts_scepconfig_handle(TsScepConfigRef_t scepconfig, TsMessageRef_t mes
 	ts_platform_assert(message != NULL);
 
 	TsStatus_t status;
-
 	char * kind;
 	status = ts_message_get_string(message, "kind", &kind);
 	if ((status == TsStatusOk) && (strcmp(kind, "ts.event.credential") == 0)) {
@@ -174,11 +175,11 @@ static TsStatus_t loadFileIntoRam(char* directory, char* file_name, uint8_t** bu
 
 	// Set the default directory, then open and size the file. Malloc some ram and read it all it.
 
-#if 0
+
 	iret = ts_file_directory_default_set(directory);
 	if (TsStatusOk != iret)
 		goto error;
-#endif
+
 
 	iret =  ts_file_open(&handle, file_name, TS_FILE_OPEN_FOR_READ);
 	if (TsStatusOk != iret)
@@ -298,6 +299,8 @@ TsStatus_t ts_handle_certack( TsMessageRef_t fields ) {
 		}
 		ts_status_debug("_ts_handle_certack: filed end\n");
 	}
+	g_useOpCert = true;
+	g_reboot_now = true;
 	ts_status_debug("_ts_handle_certack: completed processing\n");
 	return TsStatusOk;
 }
@@ -833,4 +836,28 @@ static TsStatus_t _log_scep( TsLogLevel_t level, char *message ) {
 TsStatus_t ts_scep_set_log( TsLogConfigRef_t log ) {
 	log_g = log;
 	return TsStatusOk;
+}
+
+/**
+ * Check the availability of operation certificates.
+ * @param NA
+ * @return
+ * The return true/false (bool)) of the function
+ */
+bool ts_check_opcert_available()
+{
+
+  	TsStatus_t iret = TsStatusOk;
+	ts_file_handle handle;
+
+	iret = ts_file_directory_default_set(OP_CERT_PATH);
+	if (TsStatusOk != iret)
+		return false;
+
+	iret =  ts_file_open(&handle, "opcert.der", TS_FILE_OPEN_FOR_READ);
+	if (TsStatusOk != iret)
+		return false;
+
+	ts_file_close(&handle);
+	return true;
 }
