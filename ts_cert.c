@@ -24,6 +24,7 @@ static TsStatus_t _ts_set_log( TsLogConfigRef_t log );
 static TsStatus_t _log_scep( TsLogLevel_t level, char *message );
 #define SCEP_LOG(level, ...) {char log_string_scep[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string_scep, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log_scep(level, log_string_scep);}
 #endif
+
 /**
  * Create a scep configuration object.
  * @param scepconfig
@@ -835,4 +836,28 @@ static TsStatus_t _log_scep( TsLogLevel_t level, char *message ) {
 TsStatus_t ts_scep_set_log( TsLogConfigRef_t log ) {
 	log_g = log;
 	return TsStatusOk;
+}
+
+/**
+ * Check the availability of operation certificates.
+ * @param NA
+ * @return
+ * The return true/false (bool)) of the function
+ */
+bool ts_check_opcert_available()
+{
+
+  	TsStatus_t iret = TsStatusOk;
+	ts_file_handle handle;
+
+	iret = ts_file_directory_default_set(OP_CERT_PATH);
+	if (TsStatusOk != iret)
+		return false;
+
+	iret =  ts_file_open(&handle, "opcert.der", TS_FILE_OPEN_FOR_READ);
+	if (TsStatusOk != iret)
+		return false;
+
+	ts_file_close(&handle);
+	return true;
 }

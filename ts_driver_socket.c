@@ -84,7 +84,7 @@ static TsStatus_t ts_create( TsDriverRef_t * driver ) {
 	sock->_driver._spec_mtu = 8192;
 	// TODO - should provide mac address here? probably not
 	// TODO - currently using my own mac-id - need to change this asap.
-	snprintf((char *) ( sock->_driver._spec_id ), TS_DRIVER_MAX_ID_SIZE, "%s", "363100000000001" );
+	snprintf((char *) ( sock->_driver._spec_id ), TS_DRIVER_MAX_ID_SIZE, "%s", "01:01:01:01:01:01" );
 	sock->_fd = -1;
 
 	*driver = (TsDriverRef_t) sock;
