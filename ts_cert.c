@@ -2,6 +2,7 @@
 
 #include "ts_cert.h"
 #include "ts_platform.h"
+#include "ts_status.h"
 #include "ts_util.h"
 #include "ts_file.h"
 #include "ts_log.h"
@@ -9,6 +10,19 @@
 
 #define OP_CERT_PATH "/var/lib/thingspace/certs"
 #define OP_CERT_FILE "opcert.pem"
+
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <unistd.h>
+#include <netinet/in.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include <arpa/inet.h>
+
+#include "ts_log.h"
+#include "ts_scep.h"
 
 extern bool cert;
 extern bool g_reboot_now;
@@ -19,11 +33,15 @@ TsStatus_t _ts_scep_create( TsScepConfigRef_t, int);
 static TsStatus_t _ts_handle_get( TsMessageRef_t fields );
 static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t fields );
 static TsStatus_t _ts_set_log( TsLogConfigRef_t log );
+static TsStatus_t  _ts_password_encrpyt(char* passwdPt, uint32_t PtLen, char* passwordCt);
+static TsStatus_t  _ts_password_decrypt(char* passCt, uint32 CtLen, char* passwordPt);
 
 #if 1
 static TsStatus_t _log_scep( TsLogLevel_t level, char *message );
 #define SCEP_LOG(level, ...) {char log_string_scep[LOG_MESSAGE_MAX_LENGTH]; snprintf(log_string_scep, LOG_MESSAGE_MAX_LENGTH, __VA_ARGS__); _log_scep(level, log_string_scep);}
 #endif
+int A2X(char* ascii, char* hex, int len);
+int X2A(char* hex,  char* ascii, int len);
 
 /**
  * Create a scep configuration object.
@@ -572,12 +590,28 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 		goto error;
 		}
 
+#ifdef NO_ENCRYPTION
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengePassword);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
 	 	if (iret!=TsStatusOk) {
 			ts_status_debug("ts_scepconfig_save: Error in writing challengePassword to file\n");
 	 		goto error;
 		}
+#else
+	 	// Encrypt the password aes256 ECB per the keywrap RFC
+	 	char passwordCt[100]; // 8 longer than input
+        char toAscii[200];
+        // Take the ascii password and encrypt it to binary (hex)
+        iret = _ts_password_encrpyt(pConfig->_challengePassword, strlen(pConfig->_challengePassword), passwordCt);
+        // Now convert the password binary to text (ie 0x0CFACE3D becomes "0CFACE2D")
+        X2A(passwordCt, toAscii, strlen(pConfig->_challengePassword)); //out must be 2X thes size of in
+	 	snprintf(text_line, sizeof(text_line), "%s\n", toAscii);
+	 	iret = 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing caCertFingerprint to file\n");
+	 		goto error;
+		}
+#endif
 
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_caCertFingerprint);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
@@ -783,6 +817,15 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 
 	 	// _challengePassword
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	    	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+
+	    // Get a buffer for the PT (8 less that what it was)
+
+	    // Conver the ascii hex into binary
+	    // buffer for this as well - upto 20???
+
+	    // copy the PT back into the return structure
+	    // Decrypt the data, then is should be a string again.
 	 	if (TsStatusOk != iret)
 	 		goto error;
 	 	pConfig->_challengePassword = bfr_challengePassword;
@@ -870,3 +913,260 @@ bool ts_check_opcert_available()
 	ts_file_close(&handle);
 	return true;
 }
+
+ // See what interface this comes up with
+ TsStatus_t getMAC(char* mac) {
+	 TsStatus_t iret = TsStatusOk;
+
+	 struct ifreq ifr;
+	 struct ifconf ifc;
+	 char buf[1024];
+	 int success = 0;
+
+	 int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+	 if (sock == -1) {
+		 return TsStatusError; // fix this
+	 };
+
+	 ifc.ifc_len = sizeof(buf);
+	 ifc.ifc_buf = buf;
+	 if (ioctl(sock, SIOCGIFCONF, &ifc) == -1) {
+		 return TsStatusError; // fix this
+	 }
+
+	 struct ifreq* it = ifc.ifc_req;
+	 const struct ifreq* const end = it + (ifc.ifc_len / sizeof(struct ifreq));
+
+	 for (; it != end; ++it) {
+		 strcpy(ifr.ifr_name, it->ifr_name);
+		 if (ioctl(sock, SIOCGIFFLAGS, &ifr) == 0) {
+			 if (! (ifr.ifr_flags & IFF_LOOPBACK)) { // don't count loopback
+				 if (ioctl(sock, SIOCGIFHWADDR, &ifr) == 0) {
+					 success = 1;
+					 break;
+				 }
+			 }
+		 }
+		 else {
+			 return TsStatusError; // fix this
+		 }
+	 }
+
+
+	 if (success) memcpy(mac, ifr.ifr_hwaddr.sa_data, 6);
+	 return iret;
+ }
+
+ // Get cpu serial number 64 bit from Ras Pi cpu
+ uint64_t getSerial(void)
+ {
+    static uint64_t serial = 0;
+
+    FILE *filp;
+    char buf[512];
+    char term;
+
+    filp = fopen ("/proc/cpuinfo", "r");
+
+    if (filp != NULL)
+    {
+       while (fgets(buf, sizeof(buf), filp) != NULL)
+       {
+          if (!strncasecmp("serial\t\t:", buf, 9))
+          {
+             sscanf(buf+9, "%Lx", &serial);
+          }
+       }
+
+       fclose(filp);
+    }
+    return serial;
+ }
+
+ static TsStatus_t  _ts_password_encrpyt(char* passwdPt, uint32_t PtLen, char* passwordCt)
+ {
+
+	 hwAccelDescr    hwAccelCtx;
+	 ubyte*          pRetData = NULL;
+	 TsStatus_t  iret = TsStatusOk;
+	 uint8_t key256[32];  //256 bit key
+	 uint8_t mac[6];
+	 TsStatus_t iret = TsStatusOk;
+
+	 // Form a 256 bit key from the MAC address and the RaspPi serial number
+	 iret = getMAC(&mac[0]);
+
+	 uint64_t serial = getSerial();
+
+	 memset(&key256[0],0,sizeof(key256));
+	 memcpy(&key256[0], &mac[0],6); // 48 bits
+	 memcpy(&key256[6], &serial, 8); // 64 bits 112 bits
+
+	 // rfc 5649
+	 MSTATUS ret = AESKWRAP_encrypt( MOC_SYM(hwAccelCtx) &key256[0],
+			 256/8 , passwdPt,  PtLen,
+			 passwordCt); /* SHould be dataLen + 8 */
+
+	 if (ret == Check)
+		 iret = TsStatusFail;
+
+	 return iret;
+ }
+#if 0
+ static TsStatus_t  _ts_password_decrypt(char* passCt, uint32 CtLen, char* passwordPt)
+ {
+
+	 hwAccelDescr    hwAccelCtx;
+	 TsStatus_t      iret = TsStatusOk;
+	 uint8_t key256[32];  //256 bit key
+	 uint8_t mac[6];
+	 TsStatus_t iret = TsStatusOk;
+
+	 // Form a 256 bit key from the MAC address and the RaspPi serial number
+	 iret = getMAC(&mac[0]);
+
+	 uint64_t serial = getSerial();
+
+	 memset(&key256[0],0,sizeof(key256));
+	 memcpy(&key256[0], &mac[0],6); // 48 bits
+	 memcpy(&key256[6], &serial, 8); // 64 bits 112 bits
+
+#if 0
+	 // rfc 5649
+	 MSTATUS iret = AESKWRAP_encrypt( MOC_SYM(hwAccelCtx) &key256[0],
+			 256/8 , passwdPt,  PtLen,
+			 *passwordCt); /* SHould be dataLen + 8 */
+#endif
+	 MSTATUS ret  =
+	 AESKWRAP_decrypt(MOC_SYM(hwAccelDescr hwAccelCtx) &key256[0], 256/8,
+	                  passCt, CtLen,
+	                  *passwordPt);  /* retun data -8 len */
+
+	 if (ret == what)
+		 iret = TsStatusFail;
+
+	 return iret;
+
+
+ }
+#endif
+
+
+/// example
+#if 0
+ extern MSTATUS
+ AESKWRAP_decrypt(MOC_SYM(hwAccelDescr hwAccelCtx) ubyte* keyMaterial,
+                  sbyte4 keyLength, const ubyte* data, ubyte4 dataLen,
+                  ubyte * retData /* datalen - 8 */ )
+ {
+     MSTATUS status;
+
+     ///
+     extern MSTATUS
+     AESKWRAP_encrypt( MOC_SYM(hwAccelDescr hwAccelCtx) ubyte* keyMaterial,
+                      sbyte4 keyLength, const ubyte* data, ubyte4 dataLen,
+                      ubyte * retData/* SHould be dataLen + 8 */)
+     {
+       return AESKWRAP_encryptAux (
+         MOC_SYM(hwAccelCtx) MOC_AES_WRAP_OLD_CODE, keyMaterial, keyLength,
+         data, dataLen, 0, kIV3394, retData);
+     }
+
+ // fragments mocana
+
+ {
+     if (OK > (status = AESKWRAP_encrypt(MOC_SYM(hwAccelCtx) kek,(sbyte4)EAPOL_KEK_SIZE,
+                  pPkt, pktLen, pRetData)))
+         goto exit;
+
+     MOC_MEMCPY(pPkt, pRetData, pktLen + 8);
+
+
+     static MSTATUS
+     EAPOL_PTK_encryptDecryptAES(eapolKeyFrame *keyFrame, ubyte* kek, ubyte *pPkt, sbyte4 pktLen, ubyte encryptFlag)
+     {
+         hwAccelDescr    hwAccelCtx;
+         ubyte*          pRetData = NULL;
+         MSTATUS         status = OK;
+
+         if (!keyFrame || !kek)
+         {
+             status = ERR_NULL_POINTER;
+             goto exit;
+         }
+
+         if (OK > (status = (MSTATUS)HARDWARE_ACCEL_OPEN_CHANNEL(MOCANA_EAP, &hwAccelCtx)))
+             goto exit;
+
+         if (NULL == (pRetData = MALLOC(pktLen + 8)))
+         {
+             status = ERR_MEM_ALLOC_FAIL;
+             goto exit;
+         }
+
+         if (0 == encryptFlag)
+         {
+             if (OK > (status = AESKWRAP_decrypt(MOC_SYM(hwAccelCtx) kek,(sbyte4)EAPOL_KEK_SIZE,
+                          pPkt, pktLen, pRetData)))
+                 goto exit;
+
+             MOC_MEMCPY(pPkt, pRetData, pktLen);
+         }
+         else if (1 == encryptFlag)
+         {
+             if (OK > (status = AESKWRAP_encrypt(MOC_SYM(hwAccelCtx) kek,(sbyte4)EAPOL_KEK_SIZE,
+                          pPkt, pktLen, pRetData)))
+                 goto exit;
+
+             MOC_MEMCPY(pPkt, pRetData, pktLen + 8);
+         }
+
+     exit:
+         HARDWARE_ACCEL_CLOSE_CHANNEL(MOCANA_EAP, &hwAccelCtx);
+         if (pRetData)
+         {
+             FREE(pRetData);
+         }
+
+         return status;
+     }
+
+#endif
+int A2X(char* ascii, char* hex, int len)
+{
+	int i;
+    unsigned int conv;
+	for (i=0; i<len; i+=2)
+	{
+		sscanf(&ascii[i],"%2X",&conv );
+		hex[i/2]=conv;
+	}
+    return 0;
+}
+
+// in 0xDEAD1F23 out "DEAD1F3A"
+int X2A(char* hex,  char* ascii, int len)
+{
+	int i;
+        char three[3];
+
+	for (i=0; i<len; i++)
+	{
+		snprintf(&three[0],3,"%02X",hex[i]);
+                memcpy(&ascii[i*2],&three[0],2);
+	}
+        ascii[(len*2)+1]='\0'; // null on the end 
+    return 0;
+}
+#if 0
+int main(int argc, char **argv)
+{
+     char ohex[10] = {0xde, 0xad, 0x1f, 0x2c};
+     char hex[10];
+     char out[8];
+     A2X("DEAD1F3A", hex, 8 );
+     X2A(ohex,out,4); //out must be 2X thes size of in
+    return 0;
+}
+#endif
+
