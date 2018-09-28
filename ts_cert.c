@@ -848,15 +848,6 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 
 	 	// _challengePassword
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
-	    	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
-
-	    // Get a buffer for the PT (8 less that what it was)
-
-	    // Conver the ascii hex into binary
-	    // buffer for this as well - upto 20???
-
-	    // copy the PT back into the return structure
-	    // Decrypt the data, then is should be a string again.
 	 	if (TsStatusOk != iret)
 	 		goto error;
 	 	pConfig->_challengePassword = bfr_challengePassword;
