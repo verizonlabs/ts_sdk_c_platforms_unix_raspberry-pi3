@@ -24,6 +24,24 @@
 #include "ts_log.h"
 #include "ts_scep.h"
 
+// Mocana includes for AES Keywrap RFC
+
+#include "common/moptions.h"
+#include "common/mtypes.h"
+#include "common/mocana.h"
+#include "crypto/hw_accel.h"
+
+#include "common/mdefs.h"
+#include "common/merrors.h"
+#include "common/mrtos.h"
+#include "common/mstdlib.h"
+#include "common/debug_console.h"
+#include "crypto/aesalgo.h"
+#include "crypto/aes.h"
+#include "crypto/aes_ecb.h"
+#include "crypto/aes_keywrap.h"
+
+
 extern bool cert;
 extern bool g_reboot_now;
 extern bool g_useOpCert;
@@ -34,7 +52,7 @@ static TsStatus_t _ts_handle_get( TsMessageRef_t fields );
 static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t fields );
 static TsStatus_t _ts_set_log( TsLogConfigRef_t log );
 static TsStatus_t  _ts_password_encrpyt(char* passwdPt, uint32_t PtLen, char* passwordCt);
-static TsStatus_t  _ts_password_decrypt(char* passCt, uint32 CtLen, char* passwordPt);
+static TsStatus_t  _ts_password_decrypt(char* passCt, uint32_t CtLen, char* passwordPt);
 
 #if 1
 static TsStatus_t _log_scep( TsLogLevel_t level, char *message );
@@ -589,7 +607,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 			ts_status_debug("ts_scepconfig_save: Error in writing challengeUsername to file\n");
 	 		goto error;
 		}
-
+#define LIGHT_ENCRYPTION
 #ifdef NO_ENCRYPTION
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengePassword);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
@@ -597,7 +615,20 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 			ts_status_debug("ts_scepconfig_save: Error in writing challengePassword to file\n");
 	 		goto error;
 		}
-#else
+#endif
+#ifdef LIGHT_ENCRYPTION
+        char toAscii[200];
+        X2A(pConfig->_challengePassword, toAscii, strlen(pConfig->_challengePassword));
+	 	snprintf(text_line, sizeof(toAscii), "%s\n", toAscii);
+
+	 	iret = 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing challengePassword to file\n");
+	 		goto error;
+		}
+
+#endif
+#ifdef KEYWRAP
 	 	// Encrypt the password aes256 ECB per the keywrap RFC
 	 	char passwordCt[100]; // 8 longer than input
         char toAscii[200];
@@ -991,7 +1022,6 @@ bool ts_check_opcert_available()
 	 TsStatus_t  iret = TsStatusOk;
 	 uint8_t key256[32];  //256 bit key
 	 uint8_t mac[6];
-	 TsStatus_t iret = TsStatusOk;
 
 	 // Form a 256 bit key from the MAC address and the RaspPi serial number
 	 iret = getMAC(&mac[0]);
@@ -1007,8 +1037,8 @@ bool ts_check_opcert_available()
 			 256/8 , passwdPt,  PtLen,
 			 passwordCt); /* SHould be dataLen + 8 */
 
-	 if (ret == Check)
-		 iret = TsStatusFail;
+	 if (ret != OK)
+		 iret = TsStatusError;
 
 	 return iret;
  }
