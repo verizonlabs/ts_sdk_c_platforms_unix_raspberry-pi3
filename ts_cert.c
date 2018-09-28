@@ -443,7 +443,7 @@ static TsStatus_t _ts_handle_set( TsScepConfigRef_t scepconfig, TsMessageRef_t f
 		}
 		if (ts_message_get_string(object, "password", &(scepconfig->_challengePassword))
 						== TsStatusOk) {
-			ts_status_debug("_ts_handle_set: challengePassword = %s\n", scepconfig->_challengePassword);
+			ts_status_debug("_ts_handle_set: challengePassword = XXX\n");
 		}
 		if (ts_message_get_string(object, "username", &(scepconfig->_challengeUsername))
 				== TsStatusOk) {
@@ -846,12 +846,46 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	strncpy(bfr_challengeUsername, text_line,sizeof(bfr_challengeUsername));
 
 
+
+
+	 	//
+#define LIGHT_ENCRYPTION
+#ifdef NO_ENCRYPTION
 	 	// _challengePassword
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
 	 	if (TsStatusOk != iret)
 	 		goto error;
 	 	pConfig->_challengePassword = bfr_challengePassword;
 	 	strncpy(bfr_challengePassword, text_line,sizeof(bfr_challengePassword));
+#endif
+#ifdef LIGHT_ENCRYPTION
+        char toHex[200];
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
+	 		goto error;
+        A2X(text_line, toHex, strlen(text_line));
+        toHex[strlen(text_line)/2]='\0';
+	 	pConfig->_challengePassword = bfr_challengePassword;
+	 	strncpy(bfr_challengePassword, toHex, strlen(toHex));
+
+
+#endif
+#ifdef KEYWRAP
+	 	// Encrypt the password aes256 ECB per the keywrap RFC
+	 	char passwordCt[100]; // 8 longer than input
+        char toAscii[200];
+        // Take the ascii password and encrypt it to binary (hex)
+        iret = _ts_password_encrpyt(pConfig->_challengePassword, strlen(pConfig->_challengePassword), passwordCt);
+        // Now convert the password binary to text (ie 0x0CFACE3D becomes "0CFACE2D")
+        X2A(passwordCt, toAscii, strlen(pConfig->_challengePassword)); //out must be 2X thes size of in
+	 	snprintf(text_line, sizeof(text_line), "%s\n", toAscii);
+	 	iret = 	ts_file_writeline(&handle,text_line);
+	 	if (iret!=TsStatusOk) {
+			ts_status_debug("ts_scepconfig_save: Error in writing caCertFingerprint to file\n");
+	 		goto error;
+		}
+#endif
+	 	//
 
 
 	 	// _caCertFingerprint
@@ -1176,7 +1210,7 @@ int X2A(char* hex,  char* ascii, int len)
 		snprintf(&three[0],3,"%02X",hex[i]);
                 memcpy(&ascii[i*2],&three[0],2);
 	}
-        ascii[(len*2)+1]='\0'; // null on the end 
+        ascii[(len*2)]=0; // null on the end
     return 0;
 }
 #if 0
