@@ -607,7 +607,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 			ts_status_debug("ts_scepconfig_save: Error in writing challengeUsername to file\n");
 	 		goto error;
 		}
-#define LIGHT_ENCRYPTION
+#define KEYWRAP
 #ifdef NO_ENCRYPTION
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengePassword);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
@@ -630,12 +630,14 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 #endif
 #ifdef KEYWRAP
 	 	// Encrypt the password aes256 ECB per the keywrap RFC
-	 	char passwordCt[100]; // 8 longer than input
+	 	char passwordCt[100]; // 8 longer than input is mandatory for IV
         char toAscii[200];
-        // Take the ascii password and encrypt it to binary (hex)
+
+        // Encrypt the password - the outout CT is 8 longer than the input
         iret = _ts_password_encrpyt(pConfig->_challengePassword, strlen(pConfig->_challengePassword), passwordCt);
+
         // Now convert the password binary to text (ie 0x0CFACE3D becomes "0CFACE2D")
-        X2A(passwordCt, toAscii, strlen(pConfig->_challengePassword)); //out must be 2X thes size of in
+        X2A(passwordCt, toAscii, strlen(pConfig->_challengePassword)+8);  // CT is 8 longer; outut ascii must git 2*(origin pw len+8)
 	 	snprintf(text_line, sizeof(text_line), "%s\n", toAscii);
 	 	iret = 	ts_file_writeline(&handle,text_line);
 	 	if (iret!=TsStatusOk) {
@@ -845,11 +847,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	pConfig->_challengeUsername = bfr_challengeUsername;
 	 	strncpy(bfr_challengeUsername, text_line,sizeof(bfr_challengeUsername));
 
-
-
-
-	 	//
-#define LIGHT_ENCRYPTION
+#define KEYWRAP
 #ifdef NO_ENCRYPTION
 	 	// _challengePassword
 	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
@@ -872,18 +870,19 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 #endif
 #ifdef KEYWRAP
 	 	// Encrypt the password aes256 ECB per the keywrap RFC
-	 	char passwordCt[100]; // 8 longer than input
-        char toAscii[200];
-        // Take the ascii password and encrypt it to binary (hex)
-        iret = _ts_password_encrpyt(pConfig->_challengePassword, strlen(pConfig->_challengePassword), passwordCt);
-        // Now convert the password binary to text (ie 0x0CFACE3D becomes "0CFACE2D")
-        X2A(passwordCt, toAscii, strlen(pConfig->_challengePassword)); //out must be 2X thes size of in
-	 	snprintf(text_line, sizeof(text_line), "%s\n", toAscii);
-	 	iret = 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk) {
-			ts_status_debug("ts_scepconfig_save: Error in writing caCertFingerprint to file\n");
+        char toHex[200];
+        char passwordPt[200];
+
+	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
+	 	if (TsStatusOk != iret)
 	 		goto error;
-		}
+        // Take the CT ascii password and convert it to binary CT for to prep for decryption
+        A2X(text_line, toHex, strlen(text_line));  // new lenght in binary should be 1/2 original string
+        iret = _ts_password_decrypt(toHex strlen(pConfig->_challengePassword)/2, passwordPt);  // decrupt len is origin len -8
+        // Now convert the password binary to text (ie 0x0CFACE3D becomes "0CFACE2D")
+
+	 	pConfig->_challengePassword = bfr_challengePassword;
+	 	strncpy(bfr_challengePassword, passwordPt, (strlen(pConfig->_challengePassword)/2)-8);
 #endif
 	 	//
 
@@ -1050,7 +1049,6 @@ bool ts_check_opcert_available()
 
 	 // Form a 256 bit key from the MAC address and the RaspPi serial number
 	 iret = getMAC(&mac[0]);
-
 	 uint64_t serial = getSerial();
 
 	 memset(&key256[0],0,sizeof(key256));
@@ -1058,16 +1056,30 @@ bool ts_check_opcert_available()
 	 memcpy(&key256[6], &serial, 8); // 64 bits 112 bits
 
 	 // rfc 5649
-	 MSTATUS ret = AESKWRAP_encrypt( MOC_SYM(hwAccelCtx) &key256[0],
+	 MSTATUS ret = AESKWRAP_encrypt( MOC_SYM(hwAccelCtx) ubyte* &key256[0],
 			 256/8 , passwdPt,  PtLen,
 			 passwordCt); /* SHould be dataLen + 8 */
+#if 0
+     ///
+     extern MSTATUS
+     AESKWRAP_encrypt( MOC_SYM(hwAccelDescr hwAccelCtx) ubyte* keyMaterial,
+                      sbyte4 keyLength, const ubyte* data, ubyte4 dataLen,
+                      ubyte * retData/* SHould be dataLen + 8 */)
+     {
 
+         if (OK > (status = AESKWRAP_encrypt(MOC_SYM(hwAccelCtx) kek,(sbyte4)EAPOL_KEK_SIZE,
+                      pPkt, pktLen, pRetData)))
+             goto exit;
+
+         MOC_MEMCPY(pPkt, pRetData, pktLen + 8);
+     }
+#endif
 	 if (ret != OK)
 		 iret = TsStatusError;
 
 	 return iret;
  }
-#if 0
+
  static TsStatus_t  _ts_password_decrypt(char* passCt, uint32 CtLen, char* passwordPt)
  {
 
@@ -1091,6 +1103,12 @@ bool ts_check_opcert_available()
 	 MSTATUS iret = AESKWRAP_encrypt( MOC_SYM(hwAccelCtx) &key256[0],
 			 256/8 , passwdPt,  PtLen,
 			 *passwordCt); /* SHould be dataLen + 8 */
+
+
+     {
+         if (OK > (status = AESKWRAP_decrypt(MOC_SYM(hwAccelCtx) kek,(sbyte4)EAPOL_KEK_SIZE,
+                      pPkt, pktLen, pRetData)))
+             goto exit;
 #endif
 	 MSTATUS ret  =
 	 AESKWRAP_decrypt(MOC_SYM(hwAccelDescr hwAccelCtx) &key256[0], 256/8,
@@ -1104,7 +1122,7 @@ bool ts_check_opcert_available()
 
 
  }
-#endif
+
 
 
 /// example
@@ -1213,15 +1231,5 @@ int X2A(char* hex,  char* ascii, int len)
         ascii[(len*2)]=0; // null on the end
     return 0;
 }
-#if 0
-int main(int argc, char **argv)
-{
-     char ohex[10] = {0xde, 0xad, 0x1f, 0x2c};
-     char hex[10];
-     char out[8];
-     A2X("DEAD1F3A", hex, 8 );
-     X2A(ohex,out,4); //out must be 2X thes size of in
-    return 0;
-}
-#endif
+
 
