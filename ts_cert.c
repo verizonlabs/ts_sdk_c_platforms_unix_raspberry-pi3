@@ -708,28 +708,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 		goto error;
 		}
 	 	// Password (Shared secret)
-#define KEYWRAP
-#ifdef NO_ENCRYPTION
-	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_challengePassword);
-	 	iret = 	 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk) {
-			ts_status_debug("ts_scepconfig_save: Error in writing challengePassword to file\n");
-	 		goto error;
-		}
-#endif
-#ifdef LIGHT_ENCRYPTION
-        char toAscii[200];
-        X2A(pConfig->_challengePassword, toAscii, strlen(pConfig->_challengePassword));
-	 	snprintf(text_line, sizeof(toAscii), "%s\n", toAscii);
 
-	 	iret = 	ts_file_writeline(&handle,text_line);
-	 	if (iret!=TsStatusOk) {
-			ts_status_debug("ts_scepconfig_save: Error in writing challengePassword to file\n");
-	 		goto error;
-		}
-
-#endif
-#ifdef KEYWRAP
 	 	// Encrypt the password aes256 ECB per the keywrap RFC
 	 	char passwordCt[256]; // 8 longer than input is mandatory for IV
         char toAscii[500];
@@ -749,14 +728,14 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 				 passwordCt, sizeof(passwordCt), &sizeCt);
 
         // Now convert the password binary to text (ie 0x0CFACE3D becomes "0CFACE2D")
-        X2A(passwordCt, toAscii, sizeof(passwordCt));  // CT up to 15 longer than PT, and this will be 2* origig
+        X2A(passwordCt, toAscii, sizeCt);  // CT up to 15 longer than PT, and this will be 2* origig
 	 	snprintf(text_line, sizeof(text_line), "%s\n", toAscii);
 	 	iret = 	ts_file_writeline(&handle,text_line);
 	 	if (iret!=TsStatusOk) {
 			ts_status_debug("ts_scepconfig_save: Error in writing caCertFingerprint to file\n");
 	 		goto error;
 		}
-#endif
+
 	 	// Fingerprint
 	 	snprintf(text_line, sizeof(text_line), "%s\n",pConfig->_caCertFingerprint);
 	 	iret = 	 	ts_file_writeline(&handle,text_line);
@@ -959,28 +938,7 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
 	 	pConfig->_challengeUsername = bfr_challengeUsername;
 	 	strncpy(bfr_challengeUsername, text_line,sizeof(bfr_challengeUsername));
 
-#define KEYWRAP
-#ifdef NO_ENCRYPTION
-	 	// _challengePassword
-	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
-	 	if (TsStatusOk != iret)
-	 		goto error;
-	 	pConfig->_challengePassword = bfr_challengePassword;
-	 	strncpy(bfr_challengePassword, text_line,sizeof(bfr_challengePassword));
-#endif
-#ifdef LIGHT_ENCRYPTION
-        char toHex[200];
-	    iret = ts_file_readline(&handle, text_line, sizeof(text_line));
-	 	if (TsStatusOk != iret)
-	 		goto error;
-        A2X(text_line, toHex, strlen(text_line));
-        toHex[strlen(text_line)/2]='\0';
-	 	pConfig->_challengePassword = bfr_challengePassword;
-	 	strncpy(bfr_challengePassword, toHex, strlen(toHex));
 
-
-#endif
-#ifdef KEYWRAP
 	 	// Encrypt the password aes256 ECB per the keywrap RFC
 
         char toHex[128];
@@ -1012,7 +970,8 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
         // Save the decrypted password
 	 	pConfig->_challengePassword = bfr_challengePassword;
 	 	strncpy(bfr_challengePassword, passwordPt, strlen(passwordPt));
-#endif
+	 	printf("password is %s\n\n\n",pConfig->_challengePassword );
+
 	 	//
 
 
@@ -1126,6 +1085,7 @@ int X2A(char* hex,  char* ascii, int len)
     return 0;
 }
 
+#ifdef WANT_TESTCONFIG
 // Test code generator - future FIPS140-2 use
 TsStatus_t ts_scepconfig_setup(TsScepConfig_t* pConfig, char* path, char* filename)
   {
@@ -1348,4 +1308,4 @@ TsStatus_t ts_scepconfig_setup(TsScepConfig_t* pConfig, char* path, char* filena
 	 	return iret;
 
   }
-
+#endif
