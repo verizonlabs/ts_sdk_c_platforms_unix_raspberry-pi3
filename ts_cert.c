@@ -970,7 +970,6 @@ TsStatus_t ts_scepconfig_save( TsScepConfig_t* pConfig, char* path, char* filena
         // Save the decrypted password
 	 	pConfig->_challengePassword = bfr_challengePassword;
 	 	strncpy(bfr_challengePassword, passwordPt, strlen(passwordPt));
-	 	printf("password is %s\n\n\n",pConfig->_challengePassword );
 
 	 	//
 
