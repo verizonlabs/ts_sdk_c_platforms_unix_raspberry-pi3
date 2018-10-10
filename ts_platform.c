@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #if _POSIX_C_SOURCE >= 199309L
 #include <time.h>   // for nanosleep
 #else
@@ -15,7 +19,7 @@
 // TODO - post compile-time warning if not a unix system
 
 #include "ts_platform.h"
-
+#define MOCANA_ENTROPY_BYTES (64)
 static void ts_initialize();
 static void ts_printf(const char *, ...);
 static void ts_vprintf(const char *, va_list);
@@ -25,6 +29,8 @@ static void ts_random(uint32_t*);
 static void * ts_malloc(size_t);
 static void ts_free(void *, size_t);
 static void ts_assertion(const char *, const char *, int);
+static void _addExternalEntropy();
+
 
 static TsPlatformVtable_t ts_platform_unix = {
     .initialize = ts_initialize,
@@ -40,7 +46,8 @@ static TsPlatformVtable_t ts_platform_unix = {
 const TsPlatformVtable_t * ts_platform = &ts_platform_unix;
 
 static void ts_initialize() {
-    // do nothing
+    // Add some entropy to Mocana via the HW RNG
+	_addExternalEntropy();
 }
 
 static void ts_printf(const char * format, ...) {
@@ -83,12 +90,25 @@ static void ts_sleep(uint32_t microseconds) {
 }
 
 static bool seeded = false;
+static int randomFile;
+
 static void ts_random(uint32_t * number) {
 	if (!seeded) {
-		srand((int)ts_time());
-		seeded = true;
+		randomFile = open("/dev/hwrng", O_RDONLY);
+		if (randomFile < 0)
+		{
+			ts_assertion("Can open HW Random number generator - driver installed?", __FILE__, __LINE__);
+			seeded = true;
+		}
+		char myRandomData[4];
+		ssize_t result = read(randomFile, myRandomData, sizeof myRandomData);
+		if (result < 0)
+		{
+			ts_assertion("Can read HW Random number generator - driver installed?", __FILE__, __LINE__);
+		}
+		memcpy(number, &myRandomData[0],4);
+
 	}
-	*number = (uint32_t)(rand()); // was (rand()%(2^32-1));
 }
 
 static void * ts_malloc(size_t size) {
@@ -104,3 +124,36 @@ static void ts_assertion(const char *msg, const char *file, int line) {
     fflush(stdout);
     exit(0);
 }
+
+
+// Add some entropy to Mocana from the HW rng
+static void _addExternalEntropy ()
+{
+    int		fd=-1, rval=-1, bytes_read=0, done=0;
+    uint32_t	randVal=0;
+
+
+    while (!done)
+    {
+
+        randVal=0;
+        ts_random(&randVal);
+
+        // Mocana says 512 bits works
+        if (MOCANA_ENTROPY_BYTES >= bytes_read)
+        {
+            MOCANA_addEntropy32Bits(randVal);
+
+        }
+        else
+        {
+            break;
+        }
+
+        bytes_read += sizeof(randVal);
+        done = ((MOCANA_ENTROPY_BYTES <= bytes_read));
+    }
+
+
+}
+
