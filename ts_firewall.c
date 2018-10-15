@@ -92,7 +92,7 @@ static TsCallbackContext_t ts_callback_context = {
 static void _ts_decision_callback (void *context, PMFIREWALL_DecisionInfo pDecisionInfo);
 
 //hardcode for now
-#define STATISTICS_REPORTING_INTERVAL 10000
+#define STATISTICS_REPORTING_INTERVAL 10000000
 #define xTEST_CONFIG_WALL
 #define xGENERATE_TEST_EVENTS
 #define xTEST_DOMAIN_FILTER
@@ -121,6 +121,12 @@ static TsStatus_t ts_create( TsFirewallRef_t * firewall, TsStatus_t (*alert_call
 		ts_status_alarm("ts_firewall_create: firewall initialize failed\n" );
 		return TsStatusErrorInternalServerError;
 	}
+
+	// Set interface types
+	MFIREWALL_setInterfaceType("eth0", MFIREWALL_RULE_IF_LAN);
+	MFIREWALL_setInterfaceType("ppp0", MFIREWALL_RULE_IF_PPP);
+	MFIREWALL_setInterfaceType("wlan0", MFIREWALL_RULE_IF_WIFI);
+	MFIREWALL_setInterfaceType("ppp0", MFIREWALL_RULE_IF_CELL);
 
 	// We want to save the FW rules afer update
 	fw_save_state = true;
@@ -1091,6 +1097,9 @@ static MFIREWALL_RuleEntry _ts_to_mf_rule( TsMessageRef_t ts_rule ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_PPP;
 		} else if( strcmp( string, "cell" ) == 0 ) {
 			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_CELL;
+		} else {
+			mf_rule.networkInterfaces = MFIREWALL_RULE_IF_CELL | MFIREWALL_RULE_IF_WAN | 
+						MFIREWALL_RULE_IF_LAN | MFIREWALL_RULE_IF_WIFI | MFIREWALL_RULE_IF_PPP;
 		}
 	}
 
